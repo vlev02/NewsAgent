@@ -23,7 +23,10 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your API keys
 
-# 3. Run example
+# 3a. Run the interactive scheduler
+python -m examples.scheduler
+
+# 3b. Or run the basic example
 python -m examples.basic_example
 ```
 
@@ -35,6 +38,7 @@ NewsAgent/
 │   ├── dataclasses/             # Type-safe data models
 │   ├── agents/                  # Search agent implementations
 │   ├── database/                # Pluggable persistence layer
+│   ├── scheduler/               # Interactive terminal-based CLI
 │   ├── templates/               # Jinja2 prompt templates
 │   ├── pipeline.py              # Multi-agent orchestrator
 │   └── utils.py                 # Utility functions
@@ -43,7 +47,9 @@ NewsAgent/
 │   └── agents.yaml              # Agent capabilities & defaults
 │
 ├── examples/                     # Usage examples
-│   └── basic_example.py         # Complete working example
+│   ├── scheduler.py             # Interactive terminal-based CLI
+│   ├── basic_example.py         # Complete working example
+│   └── test_scheduler.py        # Scheduler component tests
 │
 ├── docs/                         # Documentation
 │   ├── CLAUDE.md                # Development guidance
@@ -66,6 +72,7 @@ NewsAgent/
 
 ## 📚 Documentation
 
+- **[docs/SCHEDULER.md](docs/SCHEDULER.md)** - Complete guide to the interactive scheduler
 - **[docs/CLAUDE.md](docs/CLAUDE.md)** - Development guidance for Claude Code
 - **[docs/README_NEW_ARCHITECTURE.md](docs/README_NEW_ARCHITECTURE.md)** - Complete architecture guide
 - **[docs/IMPLEMENTATION_SUMMARY.md](docs/IMPLEMENTATION_SUMMARY.md)** - Technical details
@@ -104,7 +111,26 @@ NewsAgent/
 ✅ **Production-Ready** - Error handling, budget tracking, rate limiting
 ✅ **Documented** - Comprehensive guides and docstrings
 
-## 🔄 Typical Workflow
+## 🎯 Interactive Scheduler
+
+The easiest way to use NewsAgent is through the interactive **Scheduler CLI**:
+
+```bash
+python -m examples.scheduler
+```
+
+This launches a terminal-based interface with:
+1. **Explore Recent Research** - Browse queries, responses, and search results
+2. **Submit Query** - 8-step guided query submission with validation
+3. **Export Results** - Save to JSON or Markdown format
+4. **View Statistics** - Database overview and project metrics
+5. **Settings** - Agent configuration and capabilities
+
+See [docs/SCHEDULER.md](docs/SCHEDULER.md) for complete guide.
+
+## 🔄 Programmatic Workflow
+
+For custom scripts, use the Python API directly:
 
 ```python
 from src.dataclasses import QueryRequest
