@@ -16,7 +16,7 @@ from src.dataclasses.config import (
 class SchedulerConfig:
     """Configuration for the scheduler."""
 
-    database_path: str = "newsagent.db"
+    database_path: str = "data/newsagent.db"
     log_level: str = "INFO"
     log_file: str = "newsagent.log"
     default_time_range_days: int = 7
@@ -27,12 +27,16 @@ class SchedulerConfig:
     def from_env(cls) -> "SchedulerConfig":
         """Load configuration from environment variables."""
         return cls(
-            database_path=os.getenv("DATABASE_PATH", "newsagent.db"),
-            log_level=os.getenv("LOG_LEVEL", "INFO"),
-            log_file=os.getenv("LOG_FILE", "newsagent.log"),
-            default_time_range_days=int(os.getenv("DEFAULT_TIME_RANGE", "7")),
-            default_max_results=int(os.getenv("DEFAULT_MAX_RESULTS", "10")),
-            export_directory=os.getenv("EXPORT_DIRECTORY", "data"),
+            database_path=os.getenv("DATABASE_PATH", cls.database_path),
+            log_level=os.getenv("LOG_LEVEL", cls.log_level),
+            log_file=os.getenv("LOG_FILE", cls.log_file),
+            default_time_range_days=int(
+                os.getenv("DEFAULT_TIME_RANGE", cls.default_time_range_days)
+            ),
+            default_max_results=int(
+                os.getenv("DEFAULT_MAX_RESULTS", cls.default_max_results)
+            ),
+            export_directory=os.getenv("EXPORT_DIRECTORY", cls.export_directory),
         )
 
     @classmethod

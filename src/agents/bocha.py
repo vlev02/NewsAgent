@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from src.dataclasses import AgentConfig, QueryRequest, QueryResponse, SearchItem
 from src.utils import get_api_time_filter, get_time_description, build_query_string
+from src.decorators import fake_response_handler
+from src.debug_config import DebugConfig
 from .base import SearchAgent
 
 
@@ -69,11 +71,20 @@ class BochaAgent(SearchAgent):
             "last_request_time": self.last_request_time
         }
 
+    @fake_response_handler(
+        agent_name="BOCHA",
+        url="https://api.bocha.ai/websearch",
+        method="POST",
+        description="default"
+    )
     def submit_request(self,
                       query: Union[str, Dict[str, Any]],
                       request: QueryRequest) -> QueryResponse:
         """
         Execute BOCHA web search API call.
+
+        This method is decorated to support fake response caching.
+        When DebugConfig.fake_response_enabled is True, responses are cached.
 
         Args:
             query: Keyword query string

@@ -53,7 +53,7 @@ class EnvironmentVariables:
     twitter_bearer_token: Optional[str] = None
 
     # Database Configuration
-    database_path: str = "newsagent.db"
+    database_path: str = "data/newsagent.db"
     log_level: str = "INFO"
     log_file: str = "newsagent.log"
     export_directory: str = "data"
@@ -94,7 +94,7 @@ class EnvironmentVariables:
             twitter_bearer_token=os.getenv("TWITTER_BEARER_TOKEN"),
 
             # Database & Logging
-            database_path=os.getenv("DATABASE_PATH", "newsagent.db"),
+            database_path=os.getenv("DATABASE_PATH", "data/newsagent.db"),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             log_file=os.getenv("LOG_FILE", "newsagent.log"),
             export_directory=os.getenv("EXPORT_DIRECTORY", "data"),
