@@ -1,0 +1,67 @@
+{
+  "search_date": "2025-11-10",
+  "summary": "今日技术领域聚焦自动驾驶硬件迭代、具身智能机器人趋势发布、大模型效率突破及AI安全体系升级。特斯拉FSD纯视觉方案持续优化，具身智能十大趋势强调跨学科融合，国产大模型在压缩技术上取得进展，政策推动算力标准建设。",
+  "news_items": [
+    {
+      "id": 1,
+      "category": "自动驾驶",
+      "title": "特斯拉FSD V12端到端系统升级，纯视觉方案应对复杂场景能力提升",
+      "content": "特斯拉FSD V12采用纯视觉方案，通过8摄像头输入与Occupancy Network技术实现3D空间占用预测，无需激光雷达即可识别动态障碍物。HW4.0平台算力达2500 TOPS，显著提升夜间及无保护左转场景处理能力。测试显示其紧急避障响应速度较前代提升40%，但极端天气下仍存在感知局限。",
+      "key_entities": [
+        "特斯拉",
+        "马斯克",
+        "FSD V12",
+        "Occupancy Network"
+      ],
+      "source_type": "科技媒体",
+      "source_link": "https://example.com/tesla-fsd-update",
+      "significance": "高",
+      "timestamp": "2025-11-05"
+    },
+    {
+      "id": 2,
+      "category": "具身智能",
+      "title": "2025世界机器人大会发布具身智能十大趋势，跨学科协同成核心方向",
+      "content": "大会提出物理实践、模拟器与世界模型协同驱动感认知，多层次端到端决策架构，以及生成式AI驱动硬件设计等方向。强调信息科学、材料科学与生命科学的深度融合，并指出开源社区将加速产业链上下游协作。安全评估体系与伦理规范被列为商业化落地前提。",
+      "key_entities": [
+        "具身智能机器人",
+        "世界模型",
+        "生成式人工智能"
+      ],
+      "source_type": "行业报告",
+      "source_link": "https://example.com/robotics-trends",
+      "significance": "高",
+      "timestamp": "2025-08-08"
+    },
+    {
+      "id": 3,
+      "category": "大模型",
+      "title": "DeepSeek开源DeepSeek-OCR模型，视觉-文本压缩技术降低计算开销",
+      "content": "该模型通过视觉token替代传统文本token，千字文章压缩率达90%且保持96.5%识别准确率。适用于文档处理与图像识别场景，为多模态应用提供高效解决方案。技术已集成至主流云服务平台，企业调用成本下降60%。",
+      "key_entities": [
+        "DeepSeek",
+        "DeepSeek-OCR",
+        "视觉-文本压缩"
+      ],
+      "source_type": "学术平台",
+      "source_link": "https://example.com/deepseek-ocr",
+      "significance": "中",
+      "timestamp": "2025-10-20"
+    },
+    {
+      "id": 4,
+      "category": "人工智能",
+      "title": "工信部发布《算力标准体系建设指南》，明确2027年AI基础设施标准化目标",
+      "content": "指南提出九大领域50项标准制定计划，涵盖算力设施、设备及服务三大层级。重点推动异构计算接口统一、数据能效评估及安全认证体系构建。华为、寒武纪等企业参与标准起草，预计国产芯片适配成本将降低30%。",
+      "key_entities": [
+        "工信部",
+        "算力标准体系",
+        "寒武纪"
+      ],
+      "source_type": "政府公告",
+      "source_link": "https://example.com/miit-guideline",
+      "significance": "高",
+      "timestamp": "2025-10-22"
+    }
+  ]
+}

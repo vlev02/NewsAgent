@@ -1,5 +1,37 @@
+# Virtual Environment
 .venv/
+env/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs & Output
 *.log
 *.out
-*__pycache__/
-*.json
+
+# Generated Data (in data/ folder)
+# Keep data/ folder but ignore generated JSON files
+# data/tech_news_*.json
+
+# Database
+*.db
+newsagent.db
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
