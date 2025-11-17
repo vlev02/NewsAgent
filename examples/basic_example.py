@@ -26,8 +26,14 @@ def main():
     db_manager.connect()
 
     # 2. Setup agents
-    # For this example, we'll use BOCHA which is a REST API (no auth needed for demo)
-    bocha_api_key = os.getenv("BOCHA_API_KEY", "your-api-key-here")
+    # For this example, we'll use BOCHA which is a REST API
+    bocha_api_key = os.getenv("BOCHA_API_KEY")
+    if not bocha_api_key:
+        print("\n⚠️  WARNING: BOCHA_API_KEY not set in environment")
+        print("Set your API key: export BOCHA_API_KEY='your-key-here'")
+        print("Or copy .env.example to .env and fill in API keys\n")
+        bocha_api_key = "demo-key"
+
     bocha_config = BOCHA_CONFIG
     bocha_config.api_key = bocha_api_key
 

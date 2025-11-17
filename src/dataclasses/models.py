@@ -14,7 +14,7 @@ class SearchItem:
     This dataclass captures the normalized output from any search agent
     (XUNFEI, BOCHA, HUNYUAN, QIANFAN, META, TWITTER).
     """
-    id: str = field(default_factory=lambda: str(uuid4()))
+    # Required fields (no defaults)
     title: str
     content: str
     source_url: str
@@ -22,7 +22,8 @@ class SearchItem:
     source_type: str  # "XUNFEI" | "BOCHA" | "HUNYUAN" | "QIANFAN" | "META" | "TWITTER"
     timestamp: datetime
 
-    # Optional fields
+    # Fields with defaults
+    id: str = field(default_factory=lambda: str(uuid4()))
     category: Optional[str] = None
     key_entities: Optional[List[str]] = None
     relevance_score: Optional[float] = None
