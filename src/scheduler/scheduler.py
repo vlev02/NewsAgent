@@ -5,7 +5,8 @@ Main Scheduler class - Interactive terminal-based pipeline manager.
 from typing import Optional, Dict, Any
 from src.database import DatabaseManager, SQLite3Backend
 from src.dataclasses.config import AgentConfig
-from src.scheduler.config import SchedulerConfig, get_agent_configs
+from src.scheduler.config import SchedulerConfig
+from src.scheduler.scheduler_settings import SchedulerSettings
 from src.scheduler.interactive import (
     print_header, print_section, print_item, print_info,
     print_success, print_warning, prompt_choice
@@ -19,16 +20,26 @@ from src.scheduler.actions import (
 class Scheduler:
     """Interactive terminal-based scheduler for managing agents and queries."""
 
-    def __init__(self, config: Optional[SchedulerConfig] = None, agents_config: Optional[Dict[str, AgentConfig]] = None):
+    def __init__(self, config: Optional[SchedulerConfig] = None, agents_config: Optional[Dict[str, AgentConfig]] = None,
+                 settings: Optional[SchedulerSettings] = None):
         """
         Initialize scheduler.
 
         Args:
-            config: Scheduler configuration
-            agents_config: Agent configurations dictionary
+            config: Scheduler configuration (legacy, use settings instead)
+            agents_config: Agent configurations dictionary (legacy, use settings instead)
+            settings: SchedulerSettings instance with full initialization
         """
-        self.config = config or SchedulerConfig.from_env()
-        self.agents_config = agents_config or get_agent_configs()
+        # Use settings if provided, otherwise create from legacy config
+        if settings:
+            self.settings = settings
+            self.agents_config = settings.agent_configs
+            self.config = SchedulerConfig.from_env()
+            self.config.database_path = settings.env_vars.database_path
+        else:
+            self.settings = None
+            self.config = config or SchedulerConfig.from_env()
+            self.agents_config = agents_config or {}
 
         # Initialize database
         self.db = DatabaseManager(SQLite3Backend(self.config.database_path))
