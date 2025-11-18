@@ -37,6 +37,11 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+# Add scripts directory to path for sibling imports
+scripts_dir = Path(__file__).parent
+if str(scripts_dir) not in sys.path:
+    sys.path.insert(0, str(scripts_dir))
+
 from debug_agent_request_abstract import DebugAgentScript
 from src.agents.bocha import BochaAgent
 from src.dataclasses import QueryRequest
@@ -60,7 +65,18 @@ class BochaDebugScript(DebugAgentScript):
     def __init__(self):
         """Initialize BOCHA debug script"""
         super().__init__("BOCHA")
+
+        # Load API key from environment variables
+        from src.scheduler.scheduler_settings import SchedulerSettings
+        settings = SchedulerSettings.initialize()
+        ready_agents = settings.get_ready_agents()
+        bocha_config = ready_agents.get("BOCHA")
+        if bocha_config:
+            self.config.api_key = bocha_config.api_key
+
         self.agent = BochaAgent(self.config)
+        # Store the actual handle_api_request parameters for debugging
+        self._last_handle_api_request_params = None
 
     def get_default_configs(self) -> Dict[str, Any]:
         """
@@ -78,6 +94,113 @@ class BochaDebugScript(DebugAgentScript):
             "include_ai_summary": True,
             "include_raw_response": True,
         }
+
+    def get_handle_api_request_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Compute the exact parameters that will be passed to handle_api_request().
+
+        This mirrors what actually happens in BochaAgent.call_api() for debugging.
+
+        Args:
+            params: Configuration dictionary from user input
+
+        Returns:
+            Dict with all parameters that will be passed to handle_api_request()
+        """
+        from src.utils import get_api_time_filter
+        import json
+
+        # Build query string (same as build_query_from_params)
+        query_string = self.build_query_from_params(params)
+
+        # Get API-specific time filter
+        time_filter = get_api_time_filter(params.get('days_back', 7), "BOCHA")
+
+        # Build request body (same as BochaAgent.call_api)
+        body = {
+            "query": query_string,
+            "freshness": time_filter,
+            "count": params.get('max_results', 5),
+            "summary": params.get('include_ai_summary', True)
+        }
+
+        # Get headers (same as agent)
+        headers = self.agent.get_header_dict()
+
+        # Return all parameters
+        return {
+            "agent_name": "BOCHA",
+            "url": self.config.api_endpoint,
+            "method": "POST",
+            "description": "web_search",
+            "json_body": body,
+            "headers": headers,
+            "timeout": 120,
+            "query_request": None  # Will be created during actual call
+        }
+
+    def confirm_submission(self, params: Dict[str, Any]) -> bool:
+        """
+        Display final config with ACTUAL handle_api_request() parameters.
+
+        Override parent to show the exact parameters that will be passed
+        to handle_api_request() for easier debugging.
+        """
+        import json
+        from debug_agent_request_abstract import print_section
+
+        print_section("Step 5: Final Submission Confirmation")
+
+        print("BOCHA handle_api_request() PARAMETERS:")
+        print()
+
+        # Get the actual parameters
+        handle_params = self.get_handle_api_request_params(params)
+        self._last_handle_api_request_params = handle_params
+
+        # Display each parameter
+        print("Parameters that will be passed to handle_api_request():")
+        print()
+
+        print(f"agent_name: {handle_params['agent_name']!r}")
+        print()
+
+        print(f"url: {handle_params['url']!r}")
+        print()
+
+        print(f"method: {handle_params['method']!r}")
+        print()
+
+        print(f"description: {handle_params['description']!r}")
+        print()
+
+        print("json_body:")
+        print(json.dumps(handle_params['json_body'], indent=2, ensure_ascii=False))
+        print()
+
+        print("headers:")
+        print(json.dumps(handle_params['headers'], indent=2, ensure_ascii=False))
+        print()
+
+        print(f"timeout: {handle_params['timeout']}")
+        print()
+
+        print(f"query_request: {handle_params['query_request']}")
+        print()
+
+        # Fake response flags
+        print("Fake Response Flags (from DebugConfig):")
+        print(f"  fake_response_enabled: {DebugConfig.fake_response_enabled}")
+        print(f"  fake_response_update: {DebugConfig.fake_response_update}")
+        print(f"  fake_response_interact: {DebugConfig.fake_response_interact}")
+        print()
+
+        # Ask for confirmation
+        while True:
+            response = input("Submit request? (y/n): ").strip().lower()
+            if response in ['y', 'n']:
+                return response == 'y'
+            print("Please enter 'y' or 'n'")
 
     def build_query_from_params(self, params: Dict[str, Any]) -> str:
         """

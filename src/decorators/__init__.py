@@ -1,11 +1,12 @@
 """
 Decorators module for NewsAgent pipeline.
 
-Provides decorators for handling API responses, caching, and debugging.
+Provides utilities for handling API responses, caching, and debugging.
 """
 
-from .response_handler import fake_response_handler
+from .response_handler import handle_api_request, fake_response_handler
 
 __all__ = [
-    "fake_response_handler",
+    "handle_api_request",  # Primary: Unified request handler (recommended)
+    "fake_response_handler",  # Legacy: Decorator wrapper (for backward compatibility)
 ]

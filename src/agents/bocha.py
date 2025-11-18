@@ -1,13 +1,12 @@
 """BOCHA Web Search API agent implementation"""
 
 import json
-import requests
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 from src.dataclasses import AgentConfig, QueryRequest, QueryResponse, SearchItem
 from src.utils import get_api_time_filter, get_time_description, build_query_string
-from src.decorators import fake_response_handler
+from src.decorators import handle_api_request
 from src.debug_config import DebugConfig
 from .base import SearchAgent
 
@@ -46,23 +45,22 @@ class BochaAgent(SearchAgent):
             "is_available": True
         }
 
-    @fake_response_handler()  # Auto-extracts: agent_name, url, description
     def call_api(self,
                  query: Union[str, Dict[str, Any]],
                  request: QueryRequest) -> Dict[str, Any]:
         """
-        Pure API call - only makes HTTP request and returns raw response.
+        Pure API call - only makes HTTP request and returns formatted response.
 
         This is the fundamental operation that only calls the API without any
-        post-processing. The @fake_response_handler decorator caches the raw
-        response for debugging and offline development.
+        post-processing. Uses handle_api_request() utility for centralized
+        request handling with caching, formatting, and response interception.
 
         Args:
             query: Keyword query string
             request: Original QueryRequest (for building API body)
 
         Returns:
-            Raw API response dict (status code 200)
+            Formatted response dict (via dataclasses.asdict() or cached)
 
         Raises:
             requests.RequestException: If API call fails
@@ -82,17 +80,18 @@ class BochaAgent(SearchAgent):
         api_params = request.get_api_param(self.config.agent_name, None) or {}
         body.update(api_params)
 
-        # Make HTTP request - no error handling, no parsing
-        response = requests.post(
-            self.config.api_endpoint,
-            json=body,
+        # Use centralized request handler with all request parameters
+        # No lambda wrapper - all HTTP parameters passed directly
+        return handle_api_request(
+            agent_name=self.config.agent_name,
+            url=self.config.api_endpoint,
+            method="POST",
+            description="web_search",
+            json_body=body,
             headers=self.get_header_dict(),
-            timeout=120
+            timeout=120,
+            query_request=request
         )
-        response.raise_for_status()
-
-        # Return raw JSON response (no processing)
-        return response.json()
 
     def submit_request(self,
                       query: Union[str, Dict[str, Any]],
@@ -138,7 +137,7 @@ class BochaAgent(SearchAgent):
 
             return query_response
 
-        except requests.RequestException as e:
+        except Exception as e:
             return QueryResponse(
                 items=[],
                 success=False,

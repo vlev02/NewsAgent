@@ -429,6 +429,51 @@ class DebugAgentScript(ABC):
             print(f"  Size: {cache_file.stat().st_size} bytes")
             print(f"  Modified: {cache_file.stat().st_mtime}")
             print()
+
+            # Display response body content
+            try:
+                import json
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+
+                # Extract response body from cache structure
+                if isinstance(cache_data, dict):
+                    response_body = cache_data.get('response_body', {})
+
+                    if isinstance(response_body, dict):
+                        print("Response Body (brief):")
+
+                        # Show key information based on response type
+                        if 'webPages' in response_body:
+                            # BOCHA response
+                            web_pages = response_body.get('webPages', {})
+                            total = web_pages.get('totalEstimatedMatches', 0)
+                            results = web_pages.get('value', [])
+                            print(f"  Total estimated matches: {total}")
+                            print(f"  Results returned: {len(results)}")
+                            if results:
+                                print(f"  First result:")
+                                first = results[0]
+                                print(f"    Title: {first.get('name', 'N/A')}")
+                                print(f"    URL: {first.get('url', 'N/A')}")
+                                print(f"    Source: {first.get('siteName', 'N/A')}")
+                        elif 'webpages' in response_body:
+                            # META response
+                            webpages = response_body.get('webpages', {})
+                            results = webpages.get('value', [])
+                            print(f"  Results returned: {len(results)}")
+                            if results:
+                                print(f"  First result:")
+                                first = results[0]
+                                print(f"    Title: {first.get('title', 'N/A')}")
+                                print(f"    URL: {first.get('url', 'N/A')}")
+                        else:
+                            # Generic response
+                            print(f"  Response keys: {list(response_body.keys())[:5]}")
+                        print()
+            except Exception as e:
+                print(f"⚠ Could not read response content: {e}")
+                print()
         else:
             print("⚠ Cache file not found")
             print()

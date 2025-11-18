@@ -121,17 +121,18 @@ class SearchAgent(ABC):
         Override in subclasses to provide pure API call without post-processing.
 
         Example (BOCHA):
-            @fake_response_handler()
             def call_api(self, query, request) -> Dict[str, Any]:
-                '''Make HTTP request, return raw JSON only'''
-                response = requests.post(
-                    self.config.api_endpoint,
-                    json=body,
+                '''Make HTTP request via centralized handle_api_request(), return raw JSON only'''
+                return handle_api_request(
+                    agent_name=self.config.agent_name,
+                    url=self.config.api_endpoint,
+                    method="POST",
+                    description="web_search",
+                    json_body=body,
                     headers=self.get_header_dict(),
-                    timeout=120
+                    timeout=120,
+                    query_request=request
                 )
-                response.raise_for_status()
-                return response.json()
 
         Args:
             query: Prepared query (string or dict)
