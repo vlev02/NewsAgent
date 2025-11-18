@@ -85,7 +85,7 @@ class MetaDebugScript(DebugAgentScript):
     def __init__(self):
         """Initialize META debug script"""
         super().__init__("META")
-        self.api_key = SchedulerSettings.initialize().get_ready_agents().get("META", {}).get("api_key")
+        # API key is stored in config, will be retrieved in submit_request
 
     def get_default_configs(self) -> Dict[str, Any]:
         """
