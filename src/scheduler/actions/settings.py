@@ -33,13 +33,6 @@ class SettingsAction(Action):
                 status = "✓" if config.api_key else "✗"
                 print_item(f"  {agent_name}", f"{status} API Key configured", indent=1)
 
-                if hasattr(config, 'rate_limit_per_minute') and config.rate_limit_per_minute:
-                    print_item(
-                        f"    Rate Limit",
-                        f"{config.rate_limit_per_minute} requests/minute",
-                        indent=2
-                    )
-
             print()
 
             # Show menu

@@ -123,7 +123,6 @@ class QueryResponse:
     tokens_used: Optional[int] = None  # For QIANFAN usage tracking
 
     # Status tracking
-    budget_consumed: float = 0.0
     status: str = "completed"  # "completed" | "partial" | "failed" | "quota_exceeded"
 
     # Internal tracking

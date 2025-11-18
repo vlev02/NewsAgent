@@ -7,7 +7,8 @@ from .config import SchedulerConfig
 from .scheduler_settings import (
     SchedulerSettings,
     EnvironmentVariables,
-    initialize_scheduler_settings
+    initialize_scheduler_settings,
+    PathManager,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "SchedulerSettings",
     "EnvironmentVariables",
     "initialize_scheduler_settings",
+    "PathManager",
 ]

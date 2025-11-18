@@ -220,8 +220,7 @@ error_message: Optional[str]
 raw_response: Optional[Dict]
 execution_time_ms: int
 tokens_used: Optional[int]
-budget_consumed: float
-status: str                   # completed, failed, quota_exceeded, rate_limited
+status: str                   # completed, failed, rate_limited
 ```
 
 ## 🔄 Data Flow
@@ -240,7 +239,7 @@ status: str                   # completed, failed, quota_exceeded, rate_limited
 6. Pipeline executes agents (synchronously or async)
    ↓
 7. Each agent:
-   - Checks budget/rate limits
+   - Checks rate limits
    - Builds API-specific query
    - Submits request
    - Parses response
@@ -308,7 +307,7 @@ with DatabaseManager(SQLite3Backend("newsagent.db")) as db:
 - timestamp
 - items_count, total_estimated
 - success, error_message, raw_response (JSON)
-- execution_time_ms, tokens_used, budget_consumed
+- execution_time_ms, tokens_used
 - status
 - created_at
 
@@ -396,7 +395,7 @@ pyyaml==6.0.1              # YAML parsing
 ✅ **Unified**: Single interface for diverse APIs
 ✅ **Documented**: Comprehensive guides
 ✅ **Extensible**: Pluggable database backends
-✅ **Production-ready**: Error handling, budget tracking
+✅ **Production-ready**: Error handling, rate limiting
 
 ## 📝 Notes
 

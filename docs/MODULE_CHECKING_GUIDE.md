@@ -310,7 +310,7 @@ These dataclasses define the core data structures used throughout the system.
 - **Key Dataclasses**:
   - `SearchItem` - individual search result (title, source_name, description, url, date_published)
   - `QueryRequest` - user query parameters (query_fields, query_topics, source_agents, days_back, max_results, language)
-  - `QueryResponse` - agent response (agent_name, items, query_params, timestamp, budget_used, success)
+  - `QueryResponse` - agent response (agent_name, items, query_params, timestamp, status, success)
 - **What to Check**:
   - All fields have proper type hints
   - Dataclasses are properly structured
@@ -463,7 +463,7 @@ These modules implement the core search agent system.
   - Decorator applied to submit_request
   - Response parsing returns QueryResponse with SearchItems
   - Error handling for API failures
-  - Rate limiting and budget tracking
+  - Rate limiting safeguards
 - **Dependencies**: `src.agents.base`, `src.dataclasses`, `src.decorators`, `requests`
 - **Verification**:
   - [ ] `from src.agents.bocha import BochaAgent` works

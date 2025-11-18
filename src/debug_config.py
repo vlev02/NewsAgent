@@ -36,7 +36,7 @@ class DebugConfig:
 
     # Fake response control flags
     fake_response_enabled: bool = True
-    fake_response_update: bool = False
+    fake_response_update: bool = True
     fake_response_interact: bool = False
 
     # Directory for fake responses

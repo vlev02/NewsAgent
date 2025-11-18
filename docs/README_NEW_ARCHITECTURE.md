@@ -133,7 +133,7 @@ class QueryResponse:
     success: bool
     execution_time_ms: int
     tokens_used: Optional[int]
-    status: str        # "completed" | "failed" | "quota_exceeded"
+    status: str        # "completed" | "failed" | "rate_limited"
 ```
 
 ## 🔧 Creating Custom Agents
@@ -160,7 +160,8 @@ MY_API_CONFIG = AgentConfig(
 from src.agents.base import SearchAgent
 
 class MyApiAgent(SearchAgent):
-    def _initialize_budget_tracking(self) -> None:
+    def __init__(self, config: AgentConfig):
+        super().__init__(config)
         self.requests_today = 0
 
     def _load_prompt_template(self) -> Optional[Template]:
@@ -236,7 +237,7 @@ The SQLite3 backend creates three main tables:
 - agent_name, query_id (text reference)
 - items_count, total_estimated
 - success, error_message, status
-- execution_time_ms, tokens_used, budget_consumed
+- execution_time_ms, tokens_used
 
 **items**: Stores SearchItem objects (NO CASCADE)
 - item_id (PK)
@@ -369,21 +370,6 @@ Agent configurations defined in:
 - API keys loaded from `.env` (never committed)
 - Implement `.env.example` as template
 - All secrets in environment variables
-
-## 🚦 Budget & Rate Limiting
-
-Each agent tracks:
-- `requests_per_minute`: Rate limit
-- `max_calls_per_day`: Daily quota
-- `daily_quota_reset_time`: Reset schedule
-- `estimated_cost_per_request`: Cost tracking
-- `max_daily_budget`: Budget limit
-
-Agents check limits before making requests:
-```python
-if not agent.check_budget() or not agent.check_rate_limit():
-    return QueryResponse(status="quota_exceeded")
-```
 
 ## 📈 Next Steps
 

@@ -195,6 +195,59 @@ Just type `f`, `r`, `u`, or `s` and press Enter.
 
 ---
 
+## Decorator Usage (For Developers)
+
+### Option 1: Auto-Extract from Config (Recommended)
+
+The decorator can automatically extract agent name, URL, and description from the instance:
+
+```python
+from src.decorators import fake_response_handler
+
+class MyAgent(SearchAgent):
+    @fake_response_handler()  # No parameters needed!
+    def submit_request(self, query, request):
+        # Decorator auto-extracts:
+        # - agent_name from self.config.agent_name
+        # - url from self.config.api_endpoint
+        # - description from function name ("submit_request")
+
+        response = requests.post(
+            self.config.api_endpoint,
+            json=body,
+            headers=self.get_header_dict()
+        )
+        return response.json()
+```
+
+### Option 2: Hardcode Values (Backward Compatible)
+
+You can still specify values explicitly:
+
+```python
+@fake_response_handler(
+    agent_name="BOCHA",
+    url="https://api.bocha.ai/search",
+    method="POST",
+    description="default"
+)
+def submit_request(self, query, request):
+    # ...
+```
+
+### How It Works
+
+When you use `@fake_response_handler()` with no arguments:
+
+1. **agent_name**: Extracted from `self.config.agent_name`
+2. **url**: Extracted from `self.config.api_endpoint`
+3. **description**: Uses the function name (e.g., `"submit_request"`)
+4. **method**: Defaults to `"POST"`
+
+This means cache files are automatically named based on your agent configuration!
+
+---
+
 ## Configuration Flags
 
 Simple reference of what each flag does:

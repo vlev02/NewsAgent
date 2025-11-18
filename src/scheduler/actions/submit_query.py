@@ -88,7 +88,7 @@ class SubmitQueryAction(Action):
         # Show agent capabilities
         for name in agent_names:
             config = self.agents_config[name]
-            print_item(name, f"Rate limit: {config.rate_limit_per_minute or 'unlimited'} req/min", indent=1)
+            print_item(name, f"Type: {config.agent_type}", indent=1)
 
         selected = []
         while True:

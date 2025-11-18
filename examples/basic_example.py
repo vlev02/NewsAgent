@@ -9,6 +9,7 @@ This example shows how to:
 
 import os
 from datetime import datetime
+from dotenv import load_dotenv
 
 from src.dataclasses import QueryRequest
 from src.dataclasses.config import BOCHA_CONFIG
@@ -19,6 +20,9 @@ from src.pipeline import SearchPipeline
 
 def main():
     """Run basic pipeline example"""
+
+    # Load environment variables from .env file
+    load_dotenv()
 
     # 1. Setup database
     db_backend = SQLite3Backend(db_path="newsagent.db")

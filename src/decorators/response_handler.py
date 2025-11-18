@@ -16,10 +16,10 @@ logger = DebugLogger(__name__)
 
 
 def fake_response_handler(
-    agent_name: str,
-    url: str,
+    agent_name: Optional[str] = None,
+    url: Optional[str] = None,
     method: str = "POST",
-    description: str = "default"
+    description: Optional[str] = None
 ):
     """
     Decorator to handle fake response caching for agent API calls.
@@ -33,19 +33,58 @@ def fake_response_handler(
     6. Logs operations if DEBUG is enabled
 
     Usage:
+        # Option 1: Hardcoded values (backward compatible)
         @fake_response_handler(agent_name="BOCHA",
                                url="https://api.bocha.ai/search",
                                method="POST",
                                description="default")
-        def submit_and_parse(self, query):
+        def submit_request(self, query):
             # Real API call logic
             return response
 
+        # Option 2: Dynamic extraction from instance (new feature)
+        @fake_response_handler()  # Auto-extracts from self.config
+        def submit_request(self, query):
+            # Real API call logic
+            return response
+
+    Flag Priority & Decision Table:
+    ===============================
+
+    Priority order: fake_response_enabled -> cached_exists -> fake_response_interact -> user_choice -> fake_response_update
+
+    | fake_response_enabled | cached_exists | fake_response_interact | DEBUG | user_choice | fake_response_update | Final Action                        |
+    |-----------------------|---------------|------------------------|-------|-------------|----------------------|-------------------------------------|
+    | False                 | -             | -                      | -     | -           | -                    | Call real API (no caching)          |
+    | True                  | Yes           | False                  | -     | -           | -                    | Return cached response              |
+    | True                  | Yes           | True                   | False | -           | -                    | Return cached response              |
+    | True                  | Yes           | True                   | True  | fake        | -                    | Return cached response              |
+    | True                  | Yes           | True                   | True  | real        | False                | Call real API (no cache update)     |
+    | True                  | Yes           | True                   | True  | real        | True                 | Call real API + update cache        |
+    | True                  | Yes           | True                   | True  | update      | -                    | Call real API + update cache        |
+    | True                  | Yes           | True                   | True  | skip        | -                    | Return cached + skip future prompts |
+    | True                  | No            | False                  | -     | -           | False                | Call real API (no caching)          |
+    | True                  | No            | False                  | -     | -           | True                 | Call real API + save cache          |
+    | True                  | No            | True                   | False | -           | False                | Call real API (no caching)          |
+    | True                  | No            | True                   | False | -           | True                 | Call real API + save cache          |
+    | True                  | No            | True                   | True  | call        | False                | Call real API (no caching)          |
+    | True                  | No            | True                   | True  | call        | True                 | Call real API + save cache          |
+    | True                  | No            | True                   | True  | skip        | -                    | (skip prompt) then follow update    |
+
+    Legend:
+    - `-` = This flag is ignored/irrelevant for this scenario due to higher priority flags
+    - `fake_response_enabled`: Main switch (highest priority)
+    - `cached_exists`: Whether a cached response was found
+    - `fake_response_interact`: Whether to prompt user for decisions
+    - `DEBUG`: Must be True for interact mode to work
+    - `user_choice`: User's interactive choice (fake/real/update/call/skip)
+    - `fake_response_update`: Whether to cache responses from real API calls
+
     Args:
-        agent_name: Name of the agent (BOCHA, XUNFEI, etc.)
-        url: API endpoint URL
+        agent_name: Name of the agent. If None, extracts from self.config.agent_name
+        url: API endpoint URL. If None, extracts from self.config.api_endpoint
         method: HTTP method (default: POST)
-        description: Description for this specific request (default: "default")
+        description: Description for this request. If None, uses function name
 
     Returns:
         Decorated function that handles caching
@@ -54,37 +93,42 @@ def fake_response_handler(
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(self, query: Any, *args, **kwargs) -> dict:
+            # Dynamically extract values from instance if not provided
+            actual_agent_name = agent_name or getattr(self.config, 'agent_name', 'UNKNOWN')
+            actual_url = url or getattr(self.config, 'api_endpoint', 'UNKNOWN')
+            actual_description = description or func.__name__
+
             # Check if fake responses are disabled
             if not DebugConfig.fake_response_enabled:
                 if DebugConfig.log_decorator_calls:
-                    logger.info(f"Fake responses disabled, calling real API: {agent_name}")
+                    logger.info(f"Fake responses disabled, calling real API: {actual_agent_name}")
                 return func(self, query, *args, **kwargs)
 
             # Generate hash for this specific request
-            md5_hash = fake_response_manager.generate_hash(url, method, description)
+            md5_hash = fake_response_manager.generate_hash(actual_url, method, actual_description)
 
             if DebugConfig.log_decorator_calls:
-                logger.debug(f"Checking for cached response: {agent_name}/{md5_hash}")
+                logger.debug(f"Checking for cached response: {actual_agent_name}/{md5_hash}")
 
             # Try to load cached response
             cached_response = fake_response_manager.get_response(
-                agent_name=agent_name,
-                url=url,
+                agent_name=actual_agent_name,
+                url=actual_url,
                 method=method,
-                description=description
+                description=actual_description
             )
 
             if cached_response:
                 # Found cached response
-                logger.info(f"Using cached response: {agent_name}/{md5_hash}")
+                logger.info(f"Using cached response: {actual_agent_name}/{md5_hash}")
 
                 # Ask user if in interactive mode
                 if DebugConfig.fake_response_interact and DebugConfig.DEBUG:
                     choice = _ask_user_choice(
-                        agent_name=agent_name,
-                        url=url,
+                        agent_name=actual_agent_name,
+                        url=actual_url,
                         method=method,
-                        description=description,
+                        description=actual_description,
                         md5_hash=md5_hash,
                         cached=True
                     )
@@ -97,7 +141,7 @@ def fake_response_handler(
                         # Update cache if flag is set
                         if DebugConfig.fake_response_update:
                             _cache_response(
-                                agent_name, url, method, description,
+                                actual_agent_name, actual_url, method, actual_description,
                                 query, response
                             )
                         return response
@@ -107,7 +151,7 @@ def fake_response_handler(
                         logger.info("User chose to update cache with real API response")
                         response = func(self, query, *args, **kwargs)
                         _cache_response(
-                            agent_name, url, method, description,
+                            actual_agent_name, actual_url, method, actual_description,
                             query, response
                         )
                         return response
@@ -122,16 +166,16 @@ def fake_response_handler(
 
             else:
                 # No cached response found
-                logger.info(f"No cached response found: {agent_name}/{md5_hash}")
+                logger.info(f"No cached response found: {actual_agent_name}/{md5_hash}")
 
                 # Ask user if in interactive mode (no cached response)
                 if DebugConfig.fake_response_interact and DebugConfig.DEBUG:
                     if not DebugConfig._skip_interaction_for_session:
                         choice = _ask_user_choice(
-                            agent_name=agent_name,
-                            url=url,
+                            agent_name=actual_agent_name,
+                            url=actual_url,
                             method=method,
-                            description=description,
+                            description=actual_description,
                             md5_hash=md5_hash,
                             cached=False
                         )
@@ -145,7 +189,7 @@ def fake_response_handler(
                 # Cache response if update flag is enabled
                 if DebugConfig.fake_response_update:
                     _cache_response(
-                        agent_name, url, method, description,
+                        actual_agent_name, actual_url, method, actual_description,
                         query, response
                     )
 
@@ -238,7 +282,7 @@ def _cache_response(
         method: HTTP method
         description: Description
         query: The QueryRequest object
-        response: The response to cache
+        response: The response to cache (dict or dataclass)
 
     Returns:
         True if successful, False otherwise
@@ -254,6 +298,14 @@ def _cache_response(
             "language": getattr(query, 'language', 'en'),
         }
 
+        # Convert response to dict if it's a dataclass (e.g., QueryResponse)
+        if hasattr(response, '__dataclass_fields__'):
+            # It's a dataclass - convert to dict
+            import dataclasses
+            response_body = dataclasses.asdict(response)
+        else:
+            response_body = response
+
         # Update or save response
         if fake_response_manager.response_exists(agent_name, url, method, description):
             success = fake_response_manager.update_response(
@@ -262,7 +314,7 @@ def _cache_response(
                 method=method,
                 description=description,
                 request_body=request_body,
-                response_body=response
+                response_body=response_body
             )
             logger.info(f"Updated cached response: {agent_name}/{description}")
         else:
@@ -272,7 +324,7 @@ def _cache_response(
                 method=method,
                 description=description,
                 request_body=request_body,
-                response_body=response,
+                response_body=response_body,
                 notes="Auto-cached from API call"
             )
             logger.info(f"Saved new cached response: {agent_name}/{description}")

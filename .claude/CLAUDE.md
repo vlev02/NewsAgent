@@ -60,10 +60,17 @@ Original notebook-based implementations are retained for reference:
 
 ### Configuration
 
-Agents configured via:
-- **Programmatically**: `src/dataclasses/config.py` with pre-defined configs for each agent
-- **YAML-based**: `config/agents.yaml` for agent capabilities and defaults
-- **Environment**: `.env` file with API keys and database settings
+**Single Source of Truth**: `config/agents.yaml`
+
+All agent configurations are now centralized in the YAML file:
+- **Agent metadata**: name, type, endpoint
+
+- **Capabilities**: supports_time_filter, supports_ai_summary, needs_json_extraction
+- **Default parameters**: model, temperature, count, etc.
+
+The `src/dataclasses/config.py` module loads and parses the YAML file at import time.
+
+API keys are loaded from `.env` file via environment variables.
 
 ## Development Commands
 
@@ -108,6 +115,26 @@ jupyter lab
 
 ### Environment Configuration
 
+**Single Entry Point Pattern:**
+
+NewsAgent uses a unified environment loading system with a single entry point:
+
+```python
+from src.scheduler.scheduler_settings import SchedulerSettings
+
+# Load from .env
+settings = SchedulerSettings.initialize()
+
+# Load with overrides (for testing)
+settings = SchedulerSettings.initialize(
+    database_path="data/test.db",
+    log_level="DEBUG",
+    bocha_api_key="override-key"
+)
+```
+
+**Setup .env file:**
+
 ```bash
 # Copy .env.example to .env and fill in your API credentials
 cp .env.example .env
@@ -122,6 +149,23 @@ cp .env.example .env
 
 # Never commit .env to version control (already in .gitignore)
 ```
+
+**Testing without modifying .env:**
+
+```python
+# Override specific values for testing
+settings = SchedulerSettings.initialize(
+    database_path="data/demo.db",  # Use test database
+    log_level="DEBUG"               # Inherit rest from .env
+)
+
+# Configure debug flags
+from src.debug_config import DebugConfig
+DebugConfig.fake_response_enabled = True
+DebugConfig.fake_response_update = True
+```
+
+See `examples/demo_fake_response.py` for a complete demonstration and `docs/ENVIRONMENT_OVERRIDE_QUICK_REFERENCE.md` for the complete guide.
 
 ## Key Implementation Patterns
 
@@ -222,23 +266,12 @@ days_back=7 automatically becomes:
 
 ## Important Implementation Details
 
-### Agent Budget & Rate Limiting
-
-Agents track and enforce:
-- **requests_per_minute**: Rate limiting to avoid throttling
-- **max_calls_per_day**: Daily quota enforcement
-- **max_daily_budget**: Cost tracking for paid APIs
-- **budget_consumed_today**: Running tally of resource usage
-
-Each agent's `check_budget()` and `check_rate_limit()` methods are called before submissions.
-
 ### Error Handling Patterns
 
 Comprehensive error handling in `submit_and_parse()`:
-1. Budget and rate limit checking
-2. Exception catching with detailed messages
-3. Status codes: "completed", "failed", "quota_exceeded", "rate_limited"
-4. Error messages stored in `QueryResponse.error_message`
+1. Exception catching with detailed messages
+2. Status codes: "completed", "failed", "quota_exceeded"
+3. Error messages stored in `QueryResponse.error_message`
 
 ### JSON Response Extraction
 

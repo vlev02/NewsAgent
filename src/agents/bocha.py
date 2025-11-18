@@ -20,11 +20,8 @@ class BochaAgent(SearchAgent):
     Supports time filtering and multi-modal search.
     """
 
-    def _initialize_budget_tracking(self) -> None:
-        """Initialize budget and rate limit tracking"""
-        self.last_request_time: Optional[float] = None
-        self.requests_today: int = 0
-        self.budget_consumed_today: float = 0.0
+    def __init__(self, config: AgentConfig):
+        super().__init__(config)
 
     def _load_prompt_template(self) -> Optional[None]:
         """BOCHA is a REST API, not LLM-based, so no template needed"""
@@ -42,61 +39,34 @@ class BochaAgent(SearchAgent):
         """
         return build_query_string(request.query_fields, request.query_topics, separator=" ")
 
-    def check_budget(self) -> bool:
-        """Check if agent has remaining budget"""
-        if self.config.max_daily_budget is None:
-            return True
-        return self.budget_consumed_today < self.config.max_daily_budget
-
-    def check_rate_limit(self) -> bool:
-        """Check if within rate limit"""
-        if self.config.requests_per_minute is None:
-            return True
-
-        import time
-        if self.last_request_time is None:
-            return True
-
-        time_since_last = time.time() - self.last_request_time
-        min_interval = 60.0 / self.config.requests_per_minute
-        return time_since_last >= min_interval
-
     def get_status(self) -> Dict[str, Any]:
         """Get current agent status"""
         return {
             "agent_name": self.config.agent_name,
-            "is_available": self.check_budget() and self.check_rate_limit(),
-            "budget_remaining": (self.config.max_daily_budget or 0) - self.budget_consumed_today,
-            "requests_today": self.requests_today,
-            "last_request_time": self.last_request_time
+            "is_available": True
         }
 
-    @fake_response_handler(
-        agent_name="BOCHA",
-        url="https://api.bocha.ai/websearch",
-        method="POST",
-        description="default"
-    )
-    def submit_request(self,
-                      query: Union[str, Dict[str, Any]],
-                      request: QueryRequest) -> QueryResponse:
+    @fake_response_handler()  # Auto-extracts: agent_name, url, description
+    def call_api(self,
+                 query: Union[str, Dict[str, Any]],
+                 request: QueryRequest) -> Dict[str, Any]:
         """
-        Execute BOCHA web search API call.
+        Pure API call - only makes HTTP request and returns raw response.
 
-        This method is decorated to support fake response caching.
-        When DebugConfig.fake_response_enabled is True, responses are cached.
+        This is the fundamental operation that only calls the API without any
+        post-processing. The @fake_response_handler decorator caches the raw
+        response for debugging and offline development.
 
         Args:
             query: Keyword query string
-            request: Original QueryRequest
+            request: Original QueryRequest (for building API body)
 
         Returns:
-            QueryResponse with results
-        """
-        import time
-        self.last_request_time = time.time()
-        self.requests_today += 1
+            Raw API response dict (status code 200)
 
+        Raises:
+            requests.RequestException: If API call fails
+        """
         # Get API-specific time filter
         time_filter = get_api_time_filter(request.days_back, self.config.agent_name)
 
@@ -112,25 +82,49 @@ class BochaAgent(SearchAgent):
         api_params = request.get_api_param(self.config.agent_name, None) or {}
         body.update(api_params)
 
+        # Make HTTP request - no error handling, no parsing
+        response = requests.post(
+            self.config.api_endpoint,
+            json=body,
+            headers=self.get_header_dict(),
+            timeout=120
+        )
+        response.raise_for_status()
+
+        # Return raw JSON response (no processing)
+        return response.json()
+
+    def submit_request(self,
+                      query: Union[str, Dict[str, Any]],
+                      request: QueryRequest) -> QueryResponse:
+        """
+        Execute BOCHA web search and return parsed QueryResponse.
+
+        This method:
+        1. Calls the pure API via call_api()
+        2. Parses raw response into SearchItem list
+        3. Builds QueryResponse with metadata
+
+        Args:
+            query: Keyword query string
+            request: Original QueryRequest
+
+        Returns:
+            QueryResponse with parsed results
+        """
         try:
-            response = requests.post(
-                self.config.api_endpoint,
-                json=body,
-                headers=self.get_header_dict(),
-                timeout=120
-            )
-            response.raise_for_status()
+            # Step 1: Call pure API
+            raw_response = self.call_api(query, request)
 
-            raw_response = response.json()
-
-            # Parse items from response
+            # Step 2: Parse items from response
             items = self.parse_response(raw_response)
 
-            # Count estimated matches
+            # Step 3: Extract metadata
             total_estimated = None
             if 'webPages' in raw_response:
                 total_estimated = raw_response['webPages'].get('totalEstimatedMatches')
 
+            # Step 4: Build QueryResponse
             query_response = QueryResponse(
                 items=items,
                 total_estimated=total_estimated,
@@ -138,6 +132,7 @@ class BochaAgent(SearchAgent):
                 status="completed"
             )
 
+            # Step 5: Store raw response if requested
             if request.include_raw_response:
                 query_response.raw_response = raw_response
 

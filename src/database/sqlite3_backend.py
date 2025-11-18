@@ -75,7 +75,6 @@ class SQLite3Backend(DatabaseBackend):
                 raw_response TEXT,
                 execution_time_ms INTEGER DEFAULT 0,
                 tokens_used INTEGER,
-                budget_consumed REAL DEFAULT 0.0,
                 status TEXT DEFAULT 'completed',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
@@ -240,8 +239,8 @@ class SQLite3Backend(DatabaseBackend):
             INSERT OR REPLACE INTO responses (
                 response_id, agent_name, query_id, timestamp, items_count,
                 total_estimated, success, error_message, raw_response,
-                execution_time_ms, tokens_used, budget_consumed, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                execution_time_ms, tokens_used, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             response.response_id,
             response.agent_name,
@@ -254,7 +253,6 @@ class SQLite3Backend(DatabaseBackend):
             json.dumps(response.raw_response) if response.raw_response else None,
             response.execution_time_ms,
             response.tokens_used,
-            response.budget_consumed,
             response.status
         ))
 
@@ -517,7 +515,6 @@ class SQLite3Backend(DatabaseBackend):
             raw_response=json.loads(row['raw_response']) if row['raw_response'] else None,
             execution_time_ms=row['execution_time_ms'],
             tokens_used=row['tokens_used'],
-            budget_consumed=row['budget_consumed'],
             status=row['status']
         )
 

@@ -3,10 +3,11 @@ Fake Response Manager
 
 Handles storage, retrieval, and management of fake API responses.
 Uses MD5 hashing of (url, method, description) as file identifier.
+Uses PathManager for absolute paths.
 
 Each response is stored as:
-  data/fake_response/{agent}/{md5_hash}.json
-  data/fake_response/{agent}/{md5_hash}.metadata.json
+  {ROOT_DIR}/data/fake_response/{agent}/{md5_hash}.json
+  {ROOT_DIR}/data/fake_response/{agent}/{md5_hash}.metadata.json
 """
 
 import hashlib
@@ -23,16 +24,28 @@ logger = DebugLogger(__name__)
 
 
 class FakeResponseManager:
-    """Manages fake API responses with MD5-based file naming."""
+    """Manages fake API responses with MD5-based file naming - uses absolute paths."""
 
-    def __init__(self, base_dir: str = "data/fake_response"):
+    def __init__(self, base_dir: Optional[str] = None):
         """
         Initialize the fake response manager.
 
         Args:
             base_dir: Base directory for storing fake responses
+                     If None, uses PathManager.get_cache_dir()
         """
-        self.base_dir = Path(base_dir)
+        if base_dir:
+            # Use provided path (make absolute)
+            self.base_dir = Path(base_dir).resolve()
+        else:
+            # Use PathManager - guaranteed absolute path
+            try:
+                from src.scheduler.scheduler_settings import PathManager
+                self.base_dir = PathManager.get_cache_dir()
+            except Exception:
+                # Fallback if PathManager not initialized yet
+                self.base_dir = (Path.cwd() / "data/fake_response").resolve()
+
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._cache = {}  # In-memory cache of metadata
 

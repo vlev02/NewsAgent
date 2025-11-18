@@ -7,6 +7,7 @@ This module handles:
 3. Initializing all agent configurations with API keys
 4. Validating configurations
 5. Providing runtime settings access
+6. Managing all absolute paths from ROOT_DIR
 """
 
 import os
@@ -23,6 +24,101 @@ from src.dataclasses.config import (
     XUNFEI_CONFIG, BOCHA_CONFIG, HUNYUAN_CONFIG,
     QIANFAN_CONFIG, META_CONFIG, TWITTER_CONFIG, AgentConfig
 )
+
+
+class PathManager:
+    """Centralized path management - all paths are absolute from ROOT_DIR."""
+
+    _ROOT_DIR: Optional[Path] = None
+
+    @classmethod
+    def initialize_root(cls, root_dir: Optional[Path] = None) -> Path:
+        """
+        Initialize ROOT_DIR - the project root directory.
+
+        Args:
+            root_dir: Custom root directory. If None, uses current working directory.
+
+        Returns:
+            Path: The ROOT_DIR
+
+        Notes:
+            Should be called once during application startup.
+        """
+        if root_dir:
+            cls._ROOT_DIR = root_dir.resolve()
+        else:
+            cls._ROOT_DIR = Path.cwd().resolve()
+
+        return cls._ROOT_DIR
+
+    @classmethod
+    def get_root(cls) -> Path:
+        """Get ROOT_DIR - initializes if not set."""
+        if cls._ROOT_DIR is None:
+            cls.initialize_root()
+        return cls._ROOT_DIR
+
+    @classmethod
+    def get_absolute_path(cls, relative_path: str) -> Path:
+        """
+        Get absolute path by concatenating ROOT_DIR + relative_path.
+
+        Args:
+            relative_path: Relative path from ROOT_DIR (e.g., "data/newsagent.db")
+
+        Returns:
+            Path: Absolute path resolved
+
+        Examples:
+            PathManager.get_absolute_path("data/newsagent.db")
+            # → /home/user/NewsAgent/data/newsagent.db
+
+            PathManager.get_absolute_path("data/fake_response/bocha")
+            # → /home/user/NewsAgent/data/fake_response/bocha
+        """
+        return (cls.get_root() / relative_path).resolve()
+
+    @classmethod
+    def get_data_dir(cls) -> Path:
+        """Get data directory: ROOT_DIR/data"""
+        return cls.get_absolute_path("data")
+
+    @classmethod
+    def get_cache_dir(cls) -> Path:
+        """Get cache directory: ROOT_DIR/data/fake_response"""
+        return cls.get_absolute_path("data/fake_response")
+
+    @classmethod
+    def get_bocha_cache_dir(cls) -> Path:
+        """Get BOCHA cache directory: ROOT_DIR/data/fake_response/bocha"""
+        return cls.get_absolute_path("data/fake_response/bocha")
+
+    @classmethod
+    def get_database_path(cls, db_name: str = "newsagent.db") -> Path:
+        """Get database path: ROOT_DIR/data/{db_name}"""
+        return cls.get_absolute_path(f"data/{db_name}")
+
+    @classmethod
+    def get_log_path(cls, log_name: str = "newsagent.log") -> Path:
+        """Get log path: ROOT_DIR/{log_name}"""
+        return cls.get_absolute_path(log_name)
+
+    @classmethod
+    def ensure_dir_exists(cls, path: Path) -> Path:
+        """Ensure directory exists, create if needed."""
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @classmethod
+    def print_paths(cls) -> None:
+        """Print all important paths for debugging."""
+        print(f"ROOT_DIR:             {cls.get_root()}")
+        print(f"Data Directory:       {cls.get_data_dir()}")
+        print(f"Cache Directory:      {cls.get_cache_dir()}")
+        print(f"BOCHA Cache:          {cls.get_bocha_cache_dir()}")
+        print(f"Database:             {cls.get_database_path()}")
+        print(f"Log File:             {cls.get_log_path()}")
 
 
 @dataclass
@@ -135,18 +231,70 @@ class SchedulerSettings:
     agents_status: Dict[str, Tuple[bool, str]] = field(default_factory=dict)
 
     @classmethod
-    def initialize(cls, env_file: str = ".env") -> "SchedulerSettings":
+    def initialize(cls, env_file: str = ".env", root_dir: Optional[Path] = None, **overrides) -> "SchedulerSettings":
         """
-        Initialize scheduler settings from .env file and environment.
+        Initialize scheduler settings from .env file with optional overrides.
+
+        This is the SINGLE entry point for all environment configuration in NewsAgent.
 
         Args:
             env_file: Path to .env file (default: .env in project root)
+            root_dir: Project root directory (default: current working directory)
+            **overrides: Environment variable overrides as keyword arguments.
+                        Any field from EnvironmentVariables dataclass can be overridden.
 
         Returns:
             SchedulerSettings instance with all configurations initialized
+
+        Examples:
+            # Use default .env
+            settings = SchedulerSettings.initialize()
+
+            # Use custom .env file
+            settings = SchedulerSettings.initialize(".env.production")
+
+            # Override specific values (inherits rest from .env)
+            settings = SchedulerSettings.initialize(
+                database_path="data/test.db",
+                log_level="DEBUG",
+                bocha_api_key="test-key"
+            )
+
+            # Combine custom file + overrides
+            settings = SchedulerSettings.initialize(
+                ".env.staging",
+                database_path="data/staging.db"
+            )
+
+        Supported override keys:
+            # API Keys
+            - xunfei_appid, xunfei_api_secret, xunfei_api_key, xunfei_api_password
+            - hunyuan_secret_id, hunyuan_secret_key, hunyuan_api_key
+            - bocha_api_key
+            - qianfan_api_key
+            - meta_api_key
+            - twitter_bearer_token
+
+            # Configuration
+            - database_path (str)
+            - log_level (str)
+            - log_file (str)
+            - export_directory (str)
+            - default_time_range_days (int)
+            - default_max_results (int)
+            - http_proxy (str)
+            - https_proxy (str)
+
+        Override Priority:
+            1. **overrides (highest priority)
+            2. Environment variables from .env file
+            3. Default values in EnvironmentVariables dataclass
         """
-        # Find project root
-        project_root = Path.cwd()
+        # Initialize PathManager with ROOT_DIR
+        PathManager.initialize_root(root_dir)
+        project_root = PathManager.get_root()
+
+        # Find .env file
         env_path = project_root / env_file
 
         # Load .env file
@@ -160,6 +308,23 @@ class SchedulerSettings:
 
         # Load environment variables
         env_vars = EnvironmentVariables.from_env()
+
+        # Convert relative paths to absolute paths
+        if 'database_path' not in overrides:
+            env_vars.database_path = str(PathManager.get_database_path())
+
+        if 'log_file' not in overrides:
+            env_vars.log_file = str(PathManager.get_log_path())
+
+        if 'export_directory' not in overrides:
+            env_vars.export_directory = str(PathManager.get_data_dir())
+
+        # Apply overrides to env_vars
+        for key, value in overrides.items():
+            if hasattr(env_vars, key):
+                setattr(env_vars, key, value)
+            else:
+                print_warning(f"Unknown override key: {key} (ignored)")
 
         # Create scheduler settings
         settings = cls(env_vars=env_vars)

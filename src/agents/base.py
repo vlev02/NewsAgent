@@ -21,7 +21,7 @@ class SearchAgent(ABC):
     - Parsing responses
     - Normalizing timestamps
 
-    Template rendering and budget tracking are provided by the base class.
+    Template rendering is provided by the base class.
     """
 
     def __init__(self, config: AgentConfig):
@@ -33,23 +33,10 @@ class SearchAgent(ABC):
         """
         self.config = config
         self.prompt_template: Optional[Template] = None
-        self._initialize_budget_tracking()
 
         # Load prompt template if applicable
         if self.config.agent_type == "LLM_SEARCH":
             self.prompt_template = self._load_prompt_template()
-
-    @abstractmethod
-    def _initialize_budget_tracking(self) -> None:
-        """
-        Initialize budget and quota tracking.
-
-        Subclasses should track:
-        - Daily quota usage
-        - Monthly budget consumption
-        - Rate limit state
-        """
-        pass
 
     @abstractmethod
     def _load_prompt_template(self) -> Optional[Template]:
@@ -105,24 +92,6 @@ class SearchAgent(ABC):
         }
         return self.prompt_template.render(context)
 
-    def check_budget(self) -> bool:
-        """
-        Check if agent has remaining budget/quota.
-
-        Returns:
-            True if budget available, False if exceeded
-        """
-        pass
-
-    def check_rate_limit(self) -> bool:
-        """
-        Check if within rate limit.
-
-        Returns:
-            True if can make request, False if should wait
-        """
-        pass
-
     def get_status(self) -> Dict[str, Any]:
         """
         Get current agent status.
@@ -131,21 +100,68 @@ class SearchAgent(ABC):
             Dict with fields:
             - agent_name: str
             - is_available: bool
-            - budget_remaining: float
             - quota_remaining: int
             - last_call_time: datetime
             - calls_today: int
         """
         pass
 
+    def call_api(self,
+                 query: Union[str, Dict[str, Any]],
+                 request: QueryRequest) -> Any:
+        """
+        Pure API call - only makes HTTP request and returns raw response.
+
+        OPTIONAL: Implement this in subclasses that need to:
+        - Cache raw API responses for debugging
+        - Support offline development with fake responses
+        - Handle unpredictable API response formats
+
+        Default implementation raises NotImplementedError.
+        Override in subclasses to provide pure API call without post-processing.
+
+        Example (BOCHA):
+            @fake_response_handler()
+            def call_api(self, query, request) -> Dict[str, Any]:
+                '''Make HTTP request, return raw JSON only'''
+                response = requests.post(
+                    self.config.api_endpoint,
+                    json=body,
+                    headers=self.get_header_dict(),
+                    timeout=120
+                )
+                response.raise_for_status()
+                return response.json()
+
+        Args:
+            query: Prepared query (string or dict)
+            request: Original QueryRequest for context
+
+        Returns:
+            Raw API response (dict, list, or any JSON-serializable type)
+
+        Raises:
+            NotImplementedError: If not overridden in subclass
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement call_api(). "
+            "Override this method to enable raw response caching."
+        )
+
     @abstractmethod
     def submit_request(self,
                       query: Union[str, Dict[str, Any]],
                       request: QueryRequest) -> QueryResponse:
         """
-        Execute the actual API call.
+        Execute the actual API call and return parsed results.
 
-        Handles authentication, request building, and response parsing.
+        This method should:
+        1. Call call_api() for pure API operation (if implemented)
+        2. Parse raw response into SearchItem list
+        3. Build and return QueryResponse with results
+
+        Alternatively, if call_api() is not needed, directly implement
+        the full request/response cycle here.
 
         Args:
             query: Prepared query (string or dict)
@@ -188,7 +204,7 @@ class SearchAgent(ABC):
         """
         High-level method: build query, submit, parse, return QueryResponse.
 
-        Includes error handling, budget checking, and metrics collection.
+        Includes error handling, rate-limit checking, and metrics collection.
 
         Args:
             request: QueryRequest to execute
@@ -199,31 +215,6 @@ class SearchAgent(ABC):
         try:
             # Build query
             query = self.build_query(request)
-
-            # Check limits
-            if not self.check_budget():
-                return QueryResponse(
-                    response_id=str(uuid4()),
-                    agent_name=self.config.agent_name,
-                    query_id=request.query_id,
-                    timestamp=datetime.now(),
-                    items=[],
-                    success=False,
-                    status="quota_exceeded",
-                    error_message="Budget exceeded"
-                )
-
-            if not self.check_rate_limit():
-                return QueryResponse(
-                    response_id=str(uuid4()),
-                    agent_name=self.config.agent_name,
-                    query_id=request.query_id,
-                    timestamp=datetime.now(),
-                    items=[],
-                    success=False,
-                    status="rate_limited",
-                    error_message="Rate limit exceeded"
-                )
 
             # Execute
             start_time = time.time()

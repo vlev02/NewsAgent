@@ -7,9 +7,6 @@ agents:
     enabled: true
     type: "LLM_SEARCH"
     endpoint: "https://spark-api-open.xf-yun.com/v1/chat/completions"
-    rate_limit:
-      requests_per_minute: 10
-      max_calls_per_day: 100
     capabilities:
       supports_time_filter: true
       supports_ai_summary: true
@@ -26,9 +23,6 @@ agents:
     enabled: true
     type: "REST_API"
     endpoint: "https://api.bochaai.com/v1/web-search"
-    rate_limit:
-      requests_per_minute: 30
-      max_calls_per_day: 500
     capabilities:
       supports_time_filter: true
       supports_ai_summary: true
@@ -43,9 +37,6 @@ agents:
     enabled: true
     type: "LLM_SEARCH"
     endpoint: "https://hunyuan.tencentcloudapi.com"
-    rate_limit:
-      requests_per_minute: 10
-      max_calls_per_day: 100
     capabilities:
       supports_time_filter: true
       supports_ai_summary: true
@@ -62,9 +53,6 @@ agents:
     enabled: true
     type: "LLM_SEARCH"
     endpoint: "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/"
-    rate_limit:
-      requests_per_minute: 10
-      max_calls_per_day: 100
     capabilities:
       supports_time_filter: true
       supports_ai_summary: true
@@ -83,9 +71,6 @@ agents:
     enabled: true
     type: "REST_API"
     endpoint: "https://api.metaso.cn/search"
-    rate_limit:
-      requests_per_minute: 30
-      max_calls_per_day: 500
     capabilities:
       supports_time_filter: true
       supports_ai_summary: false
@@ -101,9 +86,6 @@ agents:
     enabled: true
     type: "SOCIAL_MEDIA"
     endpoint: "https://api.twitter.com/2"
-    rate_limit:
-      requests_per_minute: 15
-      max_calls_per_day: 300
     capabilities:
       supports_time_filter: true
       supports_ai_summary: false

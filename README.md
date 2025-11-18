@@ -108,7 +108,7 @@ NewsAgent/
 ✅ **Type-Safe** - Full dataclass coverage with IDE support
 ✅ **Unified** - Single interface for 6 different APIs
 ✅ **Flexible** - No cascade database relations
-✅ **Production-Ready** - Error handling, budget tracking, rate limiting
+✅ **Production-Ready** - Error handling and rate limiting
 ✅ **Documented** - Comprehensive guides and docstrings
 
 ## 🎯 Interactive Scheduler
@@ -184,8 +184,8 @@ Unified query interface:
 Result from single agent (independent ID):
 - `response_id` - Different from `query_id` (no cascade)
 - `items` - List of SearchItem results
-- `status` - "completed", "failed", "quota_exceeded"
-- `execution_time_ms, tokens_used, budget_consumed`
+- `status` - "completed", "failed", "rate_limited"
+- `execution_time_ms, tokens_used`
 
 ## 🗄️ Database
 
