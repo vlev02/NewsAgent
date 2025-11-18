@@ -3,6 +3,8 @@
 env/
 venv/
 
+*.tmp
+
 data/
 
 # Python

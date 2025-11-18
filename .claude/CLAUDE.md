@@ -393,6 +393,9 @@ The `.gitignore` excludes:
 ### Documentation Policy
 **DO NOT** output any summary/reference documentation files (*.md) without explicit permission. Documentation files are not helpful and create clutter in the project. Only create documentation when explicitly requested by the user.
 
+### Git Commit Policy
+**DO NOT** submit any git commits without explicit permission. Wait for user approval before creating commits. User will explicitly request commits when ready.
+
 ### Testing Policy
 - All test modules **MUST** be saved in the `tests/` directory
 - All tests **MUST** follow unittest format (inherit from `unittest.TestCase`)

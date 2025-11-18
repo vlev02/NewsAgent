@@ -51,7 +51,12 @@ class AgentConfig:
 
 def load_agents_from_yaml(yaml_path: str = "config/agents.yaml") -> Dict[str, AgentConfig]:
     """
-    Load agent configurations from YAML file.
+    Load agent configurations from YAML file with template support.
+
+    The YAML file now supports a template-based configuration system:
+    - Global templates define common configurations (llm_search, rest_api, social_media)
+    - Query templates define default query parameters for different regions
+    - Each agent references a template and can override specific fields
 
     Args:
         yaml_path: Path to agents.yaml file
@@ -69,18 +74,30 @@ def load_agents_from_yaml(yaml_path: str = "config/agents.yaml") -> Dict[str, Ag
     with open(config_file, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
 
+    # Extract templates and query templates from global config
+    templates = data.get('templates', {})
+    query_templates = data.get('query_templates', {})
+
     agents = {}
 
     for agent_name, config in data.get('agents', {}).items():
-        # Map YAML structure to AgentConfig fields
-        agent_type = config.get('type', 'REST_API')
+        # Get template reference and merge with agent-specific config
+        template_name = config.get('template', 'rest_api')
+        template = templates.get(template_name, {})
+
+        # Start with template, then overlay agent config
+        agent_type = config.get('type') or template.get('type', 'REST_API')
         endpoint = config.get('endpoint', '')
 
-        # Extract capabilities
-        capabilities = config.get('capabilities', {})
+        # Merge capabilities: start with template, apply overrides
+        template_capabilities = template.get('capabilities', {})
+        capabilities_overrides = config.get('capabilities_overrides', {})
+        capabilities = {**template_capabilities, **capabilities_overrides}
 
-        # Extract defaults
-        defaults = config.get('defaults', {})
+        # Merge defaults: template defaults + agent defaults
+        template_defaults = template.get('defaults', {})
+        agent_defaults = config.get('defaults', {})
+        defaults = {**template_defaults, **agent_defaults}
 
         # Determine auth header based on agent
         if agent_name == "QIANFAN":

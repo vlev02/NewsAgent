@@ -37,18 +37,37 @@ class PathManager:
         Initialize ROOT_DIR - the project root directory.
 
         Args:
-            root_dir: Custom root directory. If None, uses current working directory.
+            root_dir: Custom root directory. If None, auto-detects project root
+                     by finding the parent directory of src/ folder.
 
         Returns:
             Path: The ROOT_DIR
 
         Notes:
             Should be called once during application startup.
+
+            Auto-detection works by locating the src/ folder and using its parent,
+            which is reliable regardless of where the script is launched from.
         """
         if root_dir:
             cls._ROOT_DIR = root_dir.resolve()
         else:
-            cls._ROOT_DIR = Path.cwd().resolve()
+            # Auto-detect project root by finding src/ folder
+            # __file__ = .../NewsAgent/src/scheduler/scheduler_settings.py
+            # So: parent = .../src/scheduler
+            #     parent.parent = .../src
+            #     parent.parent.parent = .../NewsAgent (project root)
+            current_file = Path(__file__).resolve()
+            scheduler_dir = current_file.parent  # .../src/scheduler
+            src_dir = scheduler_dir.parent       # .../src
+            project_root = src_dir.parent        # .../NewsAgent (or project root)
+
+            # Verify this is actually the project root by checking src/ exists
+            if (project_root / "src").exists() and (project_root / "src").is_dir():
+                cls._ROOT_DIR = project_root
+            else:
+                # Fallback to cwd if structure not as expected
+                cls._ROOT_DIR = Path.cwd().resolve()
 
         return cls._ROOT_DIR
 
@@ -95,6 +114,24 @@ class PathManager:
         return cls.get_absolute_path("data/fake_response/bocha")
 
     @classmethod
+    def get_agent_cache_dir(cls, agent_name: str) -> Path:
+        """
+        Get cache directory for a specific agent.
+
+        Args:
+            agent_name: Agent name (e.g., "BOCHA", "XUNFEI")
+
+        Returns:
+            Path: Cache directory for the agent
+        """
+        return cls.get_absolute_path(f"data/fake_response/{agent_name.lower()}")
+
+    @classmethod
+    def get_templates_dir(cls) -> Path:
+        """Get templates directory: ROOT_DIR/src/templates"""
+        return cls.get_absolute_path("src/templates")
+
+    @classmethod
     def get_database_path(cls, db_name: str = "newsagent.db") -> Path:
         """Get database path: ROOT_DIR/data/{db_name}"""
         return cls.get_absolute_path(f"data/{db_name}")
@@ -117,6 +154,7 @@ class PathManager:
         print(f"Data Directory:       {cls.get_data_dir()}")
         print(f"Cache Directory:      {cls.get_cache_dir()}")
         print(f"BOCHA Cache:          {cls.get_bocha_cache_dir()}")
+        print(f"Templates Directory:  {cls.get_templates_dir()}")
         print(f"Database:             {cls.get_database_path()}")
         print(f"Log File:             {cls.get_log_path()}")
 

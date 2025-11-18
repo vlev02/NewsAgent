@@ -98,6 +98,11 @@ def fake_response_handler(
             actual_url = url or getattr(self.config, 'api_endpoint', 'UNKNOWN')
             actual_description = description or func.__name__
 
+            # Extract QueryRequest from args
+            # The decorated function signature is: func(self, query: str, request: QueryRequest)
+            # So args[0] contains the QueryRequest object
+            query_request = args[0] if args else None
+
             # Check if fake responses are disabled
             if not DebugConfig.fake_response_enabled:
                 if DebugConfig.log_decorator_calls:
@@ -122,6 +127,17 @@ def fake_response_handler(
                 # Found cached response
                 logger.info(f"Using cached response: {actual_agent_name}/{md5_hash}")
 
+                # Check if we should force API call to update cache
+                # This happens when fake_response_update=True and interact is disabled
+                if DebugConfig.fake_response_update and not DebugConfig.fake_response_interact:
+                    logger.info(f"fake_response_update=True and interact=False: calling real API to update cache")
+                    response = func(self, query, *args, **kwargs)
+                    _cache_response(
+                        actual_agent_name, actual_url, method, actual_description,
+                        query_request, response
+                    )
+                    return response
+
                 # Ask user if in interactive mode
                 if DebugConfig.fake_response_interact and DebugConfig.DEBUG:
                     choice = _ask_user_choice(
@@ -142,7 +158,7 @@ def fake_response_handler(
                         if DebugConfig.fake_response_update:
                             _cache_response(
                                 actual_agent_name, actual_url, method, actual_description,
-                                query, response
+                                query_request, response
                             )
                         return response
 
@@ -152,7 +168,7 @@ def fake_response_handler(
                         response = func(self, query, *args, **kwargs)
                         _cache_response(
                             actual_agent_name, actual_url, method, actual_description,
-                            query, response
+                            query_request, response
                         )
                         return response
 
@@ -190,7 +206,7 @@ def fake_response_handler(
                 if DebugConfig.fake_response_update:
                     _cache_response(
                         actual_agent_name, actual_url, method, actual_description,
-                        query, response
+                        query_request, response
                     )
 
                 return response
@@ -270,7 +286,7 @@ def _cache_response(
     url: str,
     method: str,
     description: str,
-    query: Any,
+    query_request: Any,
     response: dict
 ) -> bool:
     """
@@ -281,22 +297,34 @@ def _cache_response(
         url: API endpoint
         method: HTTP method
         description: Description
-        query: The QueryRequest object
+        query_request: The QueryRequest object (can be None if not available)
         response: The response to cache (dict or dataclass)
 
     Returns:
         True if successful, False otherwise
     """
     try:
-        # Extract request parameters from query object
-        request_body = {
-            "query_fields": getattr(query, 'query_fields', []),
-            "query_topics": getattr(query, 'query_topics', []),
-            "source_agents": getattr(query, 'source_agents', []),
-            "days_back": getattr(query, 'days_back', 7),
-            "max_results": getattr(query, 'max_results', 10),
-            "language": getattr(query, 'language', 'en'),
-        }
+        # Extract request parameters from QueryRequest object
+        # If query_request is None or doesn't have the attributes, use defaults
+        if query_request is not None:
+            request_body = {
+                "query_fields": getattr(query_request, 'query_fields', []),
+                "query_topics": getattr(query_request, 'query_topics', []),
+                "source_agents": getattr(query_request, 'source_agents', []),
+                "days_back": getattr(query_request, 'days_back', 7),
+                "max_results": getattr(query_request, 'max_results', 10),
+                "language": getattr(query_request, 'language', 'en'),
+            }
+        else:
+            # Fallback to defaults if query_request is not available
+            request_body = {
+                "query_fields": [],
+                "query_topics": [],
+                "source_agents": [],
+                "days_back": 7,
+                "max_results": 10,
+                "language": "en",
+            }
 
         # Convert response to dict if it's a dataclass (e.g., QueryResponse)
         if hasattr(response, '__dataclass_fields__'):
