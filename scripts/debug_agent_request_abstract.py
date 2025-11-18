@@ -293,7 +293,7 @@ class DebugAgentScript(ABC):
                 break
 
     def confirm_submission(self, params: Dict[str, Any]) -> bool:
-        """Display final config summary and ask user to confirm request submission"""
+        """Display final config summary with concrete request details and ask user to confirm"""
         print_section("Step 5: Final Submission Confirmation")
 
         print("FINAL REQUEST CONFIGURATION:")
@@ -303,11 +303,27 @@ class DebugAgentScript(ABC):
         print("Agent Information:")
         print(f"  Agent Name: {self.agent_name}")
         print(f"  Agent Type: {self.config.agent_type}")
-        print(f"  API Endpoint: {self.config.api_endpoint}")
         print()
 
-        # Request parameters
-        print("Request Parameters:")
+        # HTTP Request Details
+        print("HTTP Request Details:")
+        print(f"  Endpoint: {self.config.api_endpoint}")
+        print(f"  Method: POST")
+        print()
+
+        # Build request to show concrete details
+        query = self.build_query_from_params(params)
+
+        print("Request Body:")
+        if isinstance(query, dict):
+            import json
+            print(json.dumps(query, indent=2, ensure_ascii=False))
+        else:
+            print(f"  Query String: {query}")
+        print()
+
+        # Request parameters (human-readable)
+        print("Search Parameters:")
         print(f"  Query Fields: {params.get('query_fields', [])}")
         print(f"  Query Topics: {params.get('query_topics', [])}")
         print(f"  Days Back: {params.get('days_back', 7)}")
