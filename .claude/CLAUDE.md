@@ -388,11 +388,39 @@ The `.gitignore` excludes:
 - Deduplication strategies
 - Comprehensive execution reports
 
+## Critical Development Guidelines
+
+### Documentation Policy
+**DO NOT** output any summary/reference documentation files (*.md) without explicit permission. Documentation files are not helpful and create clutter in the project. Only create documentation when explicitly requested by the user.
+
+### Testing Policy
+- All test modules **MUST** be saved in the `tests/` directory
+- All tests **MUST** follow unittest format (inherit from `unittest.TestCase`)
+- Test file naming: `tests/test_*.py` (e.g., `tests/test_agents.py`, `tests/test_database.py`)
+- Example structure:
+  ```python
+  import unittest
+  from src.agents.bocha import BochaAgent
+
+  class TestBochaAgent(unittest.TestCase):
+      def setUp(self):
+          """Set up test fixtures"""
+          pass
+
+      def test_agent_initialization(self):
+          """Test agent can be initialized"""
+          self.assertIsNotNone(agent)
+
+      def tearDown(self):
+          """Clean up after tests"""
+          pass
+  ```
+
 ## Next Steps for Development
 
 1. **Implement remaining agents**: XUNFEI, HUNYUAN, QIANFAN, META, TWITTER
 2. **Add async execution**: Full async/await support in SearchPipeline
-3. **Create test suite**: Unit and integration tests for all components
+3. **Create test suite**: Unit and integration tests for all components (in `tests/` with unittest format)
 4. **Add logging**: Comprehensive logging for debugging and monitoring
 5. **Implement CLI**: Command-line interface for common operations
 6. **PostgreSQL backend**: Alternative database implementation
