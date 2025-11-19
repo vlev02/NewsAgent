@@ -89,6 +89,9 @@ class FakeResponseManager:
         """
         Retrieve a cached response.
 
+        Returns only the response_body from the cache file to match the format
+        returned by real API calls via _call_and_format_api().
+
         Args:
             agent_name: Name of the agent (BOCHA, XUNFEI, etc.)
             url: API endpoint URL
@@ -96,7 +99,7 @@ class FakeResponseManager:
             description: Description for this specific request
 
         Returns:
-            Response dict if found, None otherwise
+            Response dict (just the response_body) if found, None otherwise
         """
         md5_hash = self.generate_hash(url, method, description)
         response_path = self._get_response_path(agent_name, md5_hash)
@@ -108,7 +111,10 @@ class FakeResponseManager:
 
         try:
             with open(response_path, 'r', encoding='utf-8') as f:
-                response = json.load(f)
+                cache_data = json.load(f)
+
+            # Extract and return only response_body to match real API call format
+            response = cache_data.get('response_body')
 
             # Update metadata usage count
             self._update_metadata_usage(agent_name, md5_hash)
@@ -127,20 +133,20 @@ class FakeResponseManager:
         url: str,
         method: str,
         description: str,
-        request_body: Dict[str, Any],
         response_body: Dict[str, Any],
+        request_info: Optional[Dict[str, Any]] = None,
         notes: str = ""
     ) -> bool:
         """
-        Save a new fake response.
+        Save a new fake response with raw request information.
 
         Args:
             agent_name: Name of the agent
             url: API endpoint URL
             method: HTTP method
             description: Description for this specific request
-            request_body: The request payload sent
             response_body: The response received
+            request_info: Raw request info (agent_name, url, method, json_body, headers)
             notes: Optional notes about this response
 
         Returns:
@@ -157,14 +163,14 @@ class FakeResponseManager:
             return False
 
         try:
-            # Create response file
+            # Create response file with request_info
             response_data = {
                 "url": url,
                 "method": method,
                 "description": description,
                 "timestamp_created": datetime.now().isoformat(),
                 "timestamp_updated": datetime.now().isoformat(),
-                "request_body": request_body,
+                "request_info": request_info or {},
                 "response_body": response_body
             }
 
@@ -203,19 +209,20 @@ class FakeResponseManager:
         url: str,
         method: str,
         description: str,
-        request_body: Dict[str, Any],
-        response_body: Dict[str, Any]
+        response_body: Dict[str, Any],
+        request_info: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
-        Update an existing cached response (replace specific file).
+        Update an existing cached response, preserving existing request_info if not provided.
 
         Args:
             agent_name: Name of the agent
             url: API endpoint URL
             method: HTTP method
             description: Description for this specific request
-            request_body: The request payload sent
             response_body: The new response received
+            request_info: Raw request info (agent_name, url, method, json_body, headers)
+                         If None, preserves existing request_info from file
 
         Returns:
             True if successful, False otherwise
@@ -223,6 +230,22 @@ class FakeResponseManager:
         md5_hash = self.generate_hash(url, method, description)
 
         try:
+            # Load existing response to preserve request_info if not provided
+            response_path = self._get_response_path(agent_name, md5_hash)
+            existing_request_info = {}
+
+            if request_info is None and response_path.exists():
+                # Try to preserve existing request_info
+                try:
+                    with open(response_path, 'r', encoding='utf-8') as f:
+                        existing_data = json.load(f)
+                        existing_request_info = existing_data.get('request_info', {})
+                except Exception:
+                    existing_request_info = {}
+
+            # Use provided request_info or preserved existing one
+            final_request_info = request_info if request_info is not None else existing_request_info
+
             # Update response file
             response_data = {
                 "url": url,
@@ -230,11 +253,10 @@ class FakeResponseManager:
                 "description": description,
                 "timestamp_created": datetime.now().isoformat(),
                 "timestamp_updated": datetime.now().isoformat(),
-                "request_body": request_body,
+                "request_info": final_request_info,
                 "response_body": response_body
             }
 
-            response_path = self._get_response_path(agent_name, md5_hash)
             with open(response_path, 'w', encoding='utf-8') as f:
                 json.dump(response_data, f, ensure_ascii=False, indent=2)
 

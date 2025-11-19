@@ -131,7 +131,7 @@ def handle_api_request(
             )
             _cache_response(
                 agent_name, url, method, description,
-                query_request, response
+                query_request, response, json_body, headers
             )
             return response
 
@@ -158,7 +158,7 @@ def handle_api_request(
                 if DebugConfig.fake_response_update:
                     _cache_response(
                         agent_name, url, method, description,
-                        query_request, response
+                        query_request, response, json_body, headers
                     )
                 return response
 
@@ -171,7 +171,7 @@ def handle_api_request(
                 )
                 _cache_response(
                     agent_name, url, method, description,
-                    query_request, response
+                    query_request, response, json_body, headers
                 )
                 return response
 
@@ -212,7 +212,7 @@ def handle_api_request(
         if DebugConfig.fake_response_update:
             _cache_response(
                 agent_name, url, method, description,
-                query_request, response
+                query_request, response, json_body, headers
             )
 
         return response
@@ -272,7 +272,13 @@ def _call_and_format_api(
             )
 
         # Parse JSON response
-        response = api_response.json()
+        if api_response.status_code in (502,):
+            response = {
+                "status_code": api_response.status_code,
+                "content": str(api_response.__dict__)
+            }
+        else:
+            response = api_response.json()
 
         # Format the response using dataclasses.asdict if it's a dataclass
         if hasattr(response, '__dataclass_fields__'):
@@ -356,10 +362,12 @@ def _cache_response(
     method: str,
     description: str,
     query_request: Any,
-    response: dict
+    response: dict,
+    json_body: Optional[Dict[str, Any]] = None,
+    headers: Optional[Dict[str, str]] = None
 ) -> bool:
     """
-    Cache an API response.
+    Cache an API response with raw request information.
 
     Args:
         agent_name: Name of the agent
@@ -368,33 +376,13 @@ def _cache_response(
         description: Description
         query_request: The QueryRequest object (can be None if not available)
         response: The response to cache (dict or dataclass)
+        json_body: Raw request body sent to API
+        headers: Raw HTTP headers sent to API
 
     Returns:
         True if successful, False otherwise
     """
     try:
-        # Extract request parameters from QueryRequest object
-        # If query_request is None or doesn't have the attributes, use defaults
-        if query_request is not None:
-            request_body = {
-                "query_fields": getattr(query_request, 'query_fields', []),
-                "query_topics": getattr(query_request, 'query_topics', []),
-                "source_agents": getattr(query_request, 'source_agents', []),
-                "days_back": getattr(query_request, 'days_back', 7),
-                "max_results": getattr(query_request, 'max_results', 10),
-                "language": getattr(query_request, 'language', 'en'),
-            }
-        else:
-            # Fallback to defaults if query_request is not available
-            request_body = {
-                "query_fields": [],
-                "query_topics": [],
-                "source_agents": [],
-                "days_back": 7,
-                "max_results": 10,
-                "language": "en",
-            }
-
         # Convert response to dict if it's a dataclass (e.g., QueryResponse)
         if hasattr(response, '__dataclass_fields__'):
             # It's a dataclass - convert to dict
@@ -403,15 +391,24 @@ def _cache_response(
         else:
             response_body = response
 
-        # Update or save response
+        # Build raw request info from actual API parameters
+        request_info = {
+            "agent_name": agent_name,
+            "url": url,
+            "method": method,
+            "json_body": json_body or {},
+            "headers": headers or {}
+        }
+
+        # Update or save response with raw request info
         if fake_response_manager.response_exists(agent_name, url, method, description):
             success = fake_response_manager.update_response(
                 agent_name=agent_name,
                 url=url,
                 method=method,
                 description=description,
-                request_body=request_body,
-                response_body=response_body
+                response_body=response_body,
+                request_info=request_info
             )
             logger.info(f"Updated cached response: {agent_name}/{description}")
         else:
@@ -420,8 +417,8 @@ def _cache_response(
                 url=url,
                 method=method,
                 description=description,
-                request_body=request_body,
                 response_body=response_body,
+                request_info=request_info,
                 notes="Auto-cached from API call"
             )
             logger.info(f"Saved new cached response: {agent_name}/{description}")

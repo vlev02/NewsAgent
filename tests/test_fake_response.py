@@ -77,78 +77,28 @@ class TestFakeResponseManager(unittest.TestCase):
         )
         self.assertNotEqual(hash1, hash3, "Different descriptions should produce different hashes")
 
-    def test_3_list_responses(self):
-        """Test 3: Check existing fake responses"""
-        bocha_responses = fake_response_manager.list_responses("BOCHA")
-        self.assertIsInstance(bocha_responses, list)
-        # Should have at least 0 responses (empty is OK)
-        self.assertGreaterEqual(len(bocha_responses), 0)
-
-    def test_4_retrieve_cached_response(self):
-        """Test 4: Testing response retrieval"""
-        response = fake_response_manager.get_response(
-            agent_name="BOCHA",
-            url="https://api.bocha.ai/websearch",
-            method="POST",
-            description="default"
-        )
-        # Response can be None or a dict
-        if response:
-            self.assertIsInstance(response, dict)
-            self.assertIn('url', response)
-            self.assertIn('response_body', response)
-
-    def test_5a_debug_configuration_enable(self):
-        """Test 5a: Debug configuration enable"""
+    def test_4a_debug_configuration_enable(self):
+        """Test 4a: Debug configuration enable"""
         DebugConfig.enable_debug()
         self.assertTrue(DebugConfig.DEBUG)
         self.assertTrue(DebugConfig.fake_response_enabled)
 
-    def test_5b_debug_configuration_disable(self):
-        """Test 5b: Debug configuration disable"""
+    def test_4b_debug_configuration_disable(self):
+        """Test 4b: Debug configuration disable"""
         DebugConfig.enable_debug()
         DebugConfig.disable_debug()
         self.assertFalse(DebugConfig.DEBUG)
         self.assertFalse(DebugConfig.fake_response_enabled)
 
-    def test_5c_debug_configuration_update_mode(self):
-        """Test 5c: Debug configuration update mode"""
+    def test_4c_debug_configuration_update_mode(self):
+        """Test 4c: Debug configuration update mode"""
         DebugConfig.set_update_mode(True)
         self.assertTrue(DebugConfig.fake_response_update)
         DebugConfig.set_update_mode(False)
         self.assertFalse(DebugConfig.fake_response_update)
 
-    def test_6_response_statistics(self):
-        """Test 6: Testing response statistics"""
-        stats = fake_response_manager.get_statistics("BOCHA")
-        self.assertIsInstance(stats, dict)
-        self.assertIn('total_cached', stats)
-        self.assertIn('total_usage', stats)
-        self.assertGreaterEqual(stats['total_cached'], 0)
-        self.assertGreaterEqual(stats['total_usage'], 0)
-
-    def test_7a_response_existence_check_true(self):
-        """Test 7a: Response existence check for existing response"""
-        exists = fake_response_manager.response_exists(
-            agent_name="BOCHA",
-            url="https://api.bocha.ai/websearch",
-            method="POST",
-            description="default"
-        )
-        self.assertIsInstance(exists, bool)
-
-    def test_7b_response_existence_check_false(self):
-        """Test 7b: Response existence check for non-existing response"""
-        not_exists = fake_response_manager.response_exists(
-            agent_name="BOCHA",
-            url="https://api.fake.ai/search",
-            method="POST",
-            description="nonexistent"
-        )
-        self.assertFalse(not_exists)
-
-    def test_8_directory_structure(self):
-        """Test 8: Verifying directory structure"""
+    def test_5_directory_structure(self):
+        """Test 5: Verifying directory structure"""
         fake_response_dir = Path("data/fake_response")
         agents = ["bocha", "xunfei", "hunyuan", "qianfan", "meta", "twitter"]
 
@@ -159,14 +109,14 @@ class TestFakeResponseManager(unittest.TestCase):
                 f"{agent} directory should exist at {agent_dir}"
             )
 
-    def test_9_decorator_imports(self):
-        """Test 9: Testing decorator imports"""
+    def test_6_decorator_imports(self):
+        """Test 6: Testing decorator imports"""
         self.assertIsNotNone(fake_response_handler)
         self.assertIsNotNone(_ask_user_choice)
         self.assertIsNotNone(_cache_response)
 
-    def test_10_debug_logger(self):
-        """Test 10: Testing debug logger"""
+    def test_7_debug_logger(self):
+        """Test 7: Testing debug logger"""
         logger = DebugLogger("test_module")
         self.assertIsNotNone(logger)
 

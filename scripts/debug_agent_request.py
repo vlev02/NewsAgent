@@ -1,60 +1,31 @@
 #!/usr/bin/env python3
 """
-Interactive debug script for testing individual agents with cache verification.
+Unified debug script for all agents - single file with integrated base class.
 
-This script allows you to:
-1. Set global default configurations at the top
-2. Select an agent to debug from config/agents.yaml
-3. Configure request parameters with template support
-4. Preview request before submitting
-5. Submit the request with fake response capture enabled
-6. View response and cache file location
+This script provides a single entry point for testing any agent with cache verification.
+It automatically adapts to the selected agent's schema and configuration.
 
-CACHE VERIFICATION LOGIC:
-========================
+Features:
+- Dynamic agent selection from existing schemas
+- Schema-driven request body building via InteractiveFieldCollector
+- Real-time request body preview and modification loop
+- Unified workflow for all agents
+- Cache verification and fake response handling
 
-The script includes two verification steps to ensure fake response caching is working:
-
-**Step 5A: Cache File Update Check**
-  - Verifies that the cache file was updated within CACHE_UPDATE_TIMEOUT_SECONDS
-  - Checks file modification time to ensure fresh API call was captured
-  - If FAILED: Cache file is old, decorator may not be intercepting correctly
-  - If PASSED: Cache file exists and was recently updated
-
-**Step 6: Cache Modification on Re-submit Check**
-  - Re-submits the same request
-  - Monitors if cache file size changes within CACHE_MOD_TIMEOUT_SECONDS
-  - If FAILED: Re-submitted request reused old cache instead of updating
-  - If PASSED: Cache file was modified with new response data
-
-CONFIGURATION FLAGS (modify at top of file):
-=============================================
-
-VERIFY_CACHE_UPDATE: bool (default: True)
-  - Enable/disable Step 5A cache update verification
-
-CACHE_UPDATE_TIMEOUT_SECONDS: int (default: 3)
-  - How many seconds old the cache file can be to pass verification
-
-VERIFY_CACHE_MODIFICATION: bool (default: True)
-  - Enable/disable Step 6 cache modification verification
-
-CACHE_MOD_TIMEOUT_SECONDS: int (default: 3)
-  - How many seconds to wait for cache file size change
-
-FAKE RESPONSE DEBUG FLAGS (set in DebugConfig):
-===============================================
-
-DebugConfig.fake_response_enabled: bool
-  - Whether to use cached responses at all
-
-DebugConfig.fake_response_update: bool
-  - Whether to UPDATE cache when fake_response_enabled is True
-  - True = Make real API call and update cache
-  - False = Use existing cache, don't update
-
-DebugConfig.fake_response_interact: bool
-  - Whether to prompt user to save/discard responses
+Step 2 Workflow (Configure Request Parameters):
+┌─────────────────────────────────────────────────────┐
+│ 1. Report current request body                       │
+│    (initialized by schema defaults if not exist)     │
+├─────────────────────────────────────────────────────┤
+│ 2. Check whether to update                           │
+│    ├─ No → Break and confirm                         │
+│    └─ Yes → Continue to step 3                       │
+├─────────────────────────────────────────────────────┤
+│ 3. Interact to update                                │
+│    (InteractiveFieldCollector guides user)           │
+├─────────────────────────────────────────────────────┤
+│ 4. Go back to step 1 (loop continues)                │
+└─────────────────────────────────────────────────────┘
 
 Usage:
     python scripts/debug_agent_request.py
@@ -63,7 +34,9 @@ Usage:
 from pathlib import Path
 import sys
 import json
-from typing import Dict, List, Any
+import time
+from typing import Dict, Any, Optional, Union
+from abc import ABC, abstractmethod
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -72,749 +45,716 @@ if str(project_root) not in sys.path:
 
 from src.scheduler.scheduler_settings import SchedulerSettings, PathManager
 from src.debug_config import DebugConfig
-from src.dataclasses import QueryRequest
 from src.dataclasses.config import AGENT_CONFIGS
-from src.agents.bocha import BochaAgent
+from src.decorators import handle_api_request
+from src.schemas import (
+    get_all_schemas,
+    get_schema,
+    FieldCollector,
+    InteractiveFieldCollector,
+)
+
 
 # ==============================================================================
-# GLOBAL DEFAULT CONFIGS - Modify these to change default behavior
+# COLOR UTILITIES
 # ==============================================================================
 
-DEFAULT_CONFIGS = {
-    "query_fields": ["人工智能"],
-    "query_topics": ["大模型"],
-    "days_back": 7,
-    "max_results": 5,
-    "language": "zh",
-    "include_ai_summary": True,
-    "include_raw_response": True,
-}
+class Color:
+    """ANSI color codes for terminal output"""
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+
+    # Text colors
+    BLACK = "\033[30m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    WHITE = "\033[37m"
+
+    # Background colors
+    BG_BLACK = "\033[40m"
+    BG_RED = "\033[41m"
+    BG_GREEN = "\033[42m"
+    BG_YELLOW = "\033[43m"
+    BG_BLUE = "\033[44m"
+    BG_MAGENTA = "\033[45m"
+    BG_CYAN = "\033[46m"
+    BG_WHITE = "\033[47m"
+
+    # Reset
+    RESET = "\033[0m"
+
+    @staticmethod
+    def bold(text):
+        return f"{Color.BOLD}{text}{Color.RESET}"
+
+    @staticmethod
+    def cyan(text):
+        return f"{Color.CYAN}{text}{Color.RESET}"
+
+    @staticmethod
+    def green(text):
+        return f"{Color.GREEN}{text}{Color.RESET}"
+
+    @staticmethod
+    def yellow(text):
+        return f"{Color.YELLOW}{text}{Color.RESET}"
+
+    @staticmethod
+    def red(text):
+        return f"{Color.RED}{text}{Color.RESET}"
+
+    @staticmethod
+    def blue(text):
+        return f"{Color.BLUE}{text}{Color.RESET}"
+
+    @staticmethod
+    def dim(text):
+        return f"{Color.DIM}{text}{Color.RESET}"
+
 
 # ==============================================================================
-# FAKE RESPONSE CACHE VERIFICATION FLAGS
-# ==============================================================================
-# Set these to control cache verification behavior
-
-VERIFY_CACHE_UPDATE = True          # Enable cache update verification
-CACHE_UPDATE_TIMEOUT_SECONDS = 3    # Timeout for cache file update check
-VERIFY_CACHE_MODIFICATION = True    # Verify cache modification on re-submit
-CACHE_MOD_TIMEOUT_SECONDS = 3       # Timeout for cache modification check
-
-# ==============================================================================
-# HELPER FUNCTIONS
+# UTILITY FUNCTIONS
 # ==============================================================================
 
-def print_header(title: str):
-    """Print formatted header"""
-    print()
-    print("=" * 100)
-    print(title)
-    print("=" * 100)
-    print()
+def clear_page():
+    """Clear the terminal screen"""
+    import os
+    os.system('clear' if os.name == 'posix' else 'cls')
 
 
 def print_section(title: str):
-    """Print formatted section"""
+    """Print a section header"""
     print()
-    print("-" * 100)
-    print(title)
-    print("-" * 100)
+    separator = Color.cyan("=" * 100)
+    print(separator)
+    print(f" {Color.bold(Color.yellow(title))}")
+    print(separator)
 
 
-def get_available_agents() -> Dict[int, str]:
-    """Get list of available agents from AGENT_CONFIGS"""
-    agents = {}
-    for idx, agent_name in enumerate(AGENT_CONFIGS.keys(), 1):
-        agents[idx] = agent_name
-    return agents
+def print_header(title: str):
+    """Print a main header"""
+    print("\n")
+    print(Color.bold(Color.cyan("╔" + "═" * 98 + "╗")))
+    print(Color.bold(Color.cyan("║")) + f" {Color.yellow(Color.bold(title)):<94} " + Color.bold(Color.cyan("║")))
+    print(Color.bold(Color.cyan("╚" + "═" * 98 + "╝")))
 
 
-def display_agent_options(agents: Dict[int, str]):
-    """Display agent options for selection"""
-    print("\nAvailable agents:")
-    for idx, agent_name in agents.items():
-        config = AGENT_CONFIGS[agent_name]
-        print(f"  {idx}. {agent_name:12} - {config.agent_type:15} ({config.api_endpoint[:60]}...)")
-    print()
+# ==============================================================================
+# UNIFIED DEBUG AGENT CLASS (consolidated with base class)
+# ==============================================================================
 
+class DebugAgentScript(ABC):
+    """
+    Unified debug script that works with any agent.
 
-def select_agent() -> str:
-    """Interactive agent selection"""
-    print_section("Step 1: Select Agent")
+    Automatically adapts to the selected agent's schema and configuration.
+    Uses InteractiveFieldCollector to guide users through building request bodies.
 
-    agents = get_available_agents()
-    display_agent_options(agents)
+    Provides common functionality for:
+    - Parameter configuration with modification loops
+    - Request preview and confirmation
+    - Cache verification
+    - Retry/modify/finish logic
+    """
 
-    while True:
-        try:
-            choice = input("Enter agent number: ").strip()
-            choice_int = int(choice)
-            if choice_int in agents:
-                agent_name = agents[choice_int]
-                print(f"✓ Selected: {agent_name}")
-                return agent_name
-            else:
-                print(f"❌ Invalid choice. Please select 1-{len(agents)}")
-        except ValueError:
-            print("❌ Invalid input. Please enter a number")
+    # Cache verification settings (same for all agents)
+    VERIFY_CACHE_UPDATE = True
+    CACHE_UPDATE_TIMEOUT_SECONDS = 3
+    VERIFY_CACHE_MODIFICATION = True
+    CACHE_MOD_TIMEOUT_SECONDS = 3
 
+    def __init__(self, agent_name: str):
+        """Initialize unified debug script for the given agent.
 
-def build_request_params() -> Dict[str, Any]:
-    """Build request parameters with defaults and user customization - with modification loop"""
-    params = DEFAULT_CONFIGS.copy()
+        Args:
+            agent_name: Name of the agent (e.g., "BOCHA", "META", "XUNFEI")
+        """
+        self.agent_name = agent_name
+        self.config = AGENT_CONFIGS.get(agent_name)
+        if not self.config:
+            raise ValueError(f"Agent {agent_name} not found in AGENT_CONFIGS")
 
-    while True:
+        # Get schema for this agent
+        self.schema_class = get_schema(agent_name)
+        self.schema_name = self.schema_class.__name__.replace("RequestSchema", "")
+
+        # Initialize params with default request body and default configs
+        default_body = FieldCollector.get_default_body(self.schema_class)
+        self.params = self.get_default_configs().copy()
+        self.params["request_body"] = default_body
+
+    # ==============================================================================
+    # ABSTRACT METHODS - Must be implemented by subclass
+    # ==============================================================================
+
+    @abstractmethod
+    def get_default_configs(self) -> Dict[str, Any]:
+        """Return default configuration parameters for this agent."""
+        pass
+
+    @abstractmethod
+    def build_query_from_params(self, params: Dict[str, Any]) -> Union[str, Dict]:
+        """Convert parameters to agent-specific query format."""
+        pass
+
+    @abstractmethod
+    def submit_request(self, query: Union[str, Dict], params: Dict[str, Any]) -> Optional[Dict]:
+        """Execute the actual API call."""
+        pass
+
+    # ==============================================================================
+    # COMMON METHODS - Reusable across all agents
+    # ==============================================================================
+
+    def build_request_params(self) -> None:
+        """
+        Build request parameters with loop for review and modification.
+
+        Updates self.params directly with modifications.
+
+        Workflow:
+        1. Report current request body from self.params
+        2. Check whether to update - break if not
+        3. Interact to update (changes take effect on self.params)
+        4. Go back to step 1
+        """
         print_section("Step 2: Configure Request Parameters")
 
-        print("Current parameters:")
-        print(f"  query_fields: {params['query_fields']}")
-        print(f"  query_topics: {params['query_topics']}")
-        print(f"  days_back: {params['days_back']}")
-        print(f"  max_results: {params['max_results']}")
-        print(f"  language: {params['language']}")
+        # Get the current body from self.params
+        body = self.params["request_body"]
+
+        # Create collector for interactive form (reusable across modifications)
+        collector = InteractiveFieldCollector(self.schema_class)
+
+        # Loop for request body review and modification
+        while True:
+            # Step 1: Report current request body
+            print_section("Current Request Body")
+            table = FieldCollector.generate_table(self.schema_class, body)
+            print(table)
+
+            print(Color.cyan("JSON REQUEST BODY:"))
+            print(json.dumps(body, indent=2, ensure_ascii=False))
+            print()
+
+            # Step 2: Check whether to update - break if not
+            modify = input(f"Update request body? {Color.blue('(y/[n])')} ").strip().lower() or 'n'
+            if modify != "y":
+                # User confirmed - exit loop
+                print("✓ Request body confirmed")
+                print()
+                break
+
+            # Step 3: Interact to update (updates body in-place)
+            print()
+            print(Color.cyan("Enter new values (changes will take effect):"))
+            print()
+            # Pass current body so existing values are shown as defaults
+            updated_body = collector.build_request_body(body)
+            # Update body with any changes
+            body.update(updated_body)
+            print()
+            print(f"✓ Request body updated. Current state:")
+            print()
+
+            # Step 4: Go back to step 1 (implicit - while loop continues)
+
+        # self.params is already updated since body is a reference to self.params["request_body"]
+
+    def display_complete_request_report(self):
+        """Display complete request report with all details"""
+        print_section("Step 3: Complete Request Report")
+
+        print(Color.cyan("REQUEST DETAILS:"))
         print()
 
-        customize = input("Modify parameters? (y/n): ").strip().lower()
+        # API endpoint and method
+        print(Color.cyan("API Configuration:"))
+        api_endpoint = self.config.api_endpoint if self.config else "[NOT_CONFIGURED]"
+        agent_type = self.config.agent_type if self.config else "[NOT_CONFIGURED]"
+        print(f"  Endpoint: {Color.yellow(api_endpoint)}")
+        print(f"  Agent Type: {Color.yellow(agent_type)}")
+        print()
 
-        if customize == 'y':
-            # Allow customization with defaults shown
-            print("\nEnter new values (press Enter to keep current):")
+        # Request body
+        request_body = self.params.get("request_body", {})
+        print(Color.cyan("Request Body (from schema):"))
+        table = FieldCollector.generate_table(self.schema_class, request_body)
+        print(table)
 
-            fields_default = ", ".join(params['query_fields'])
-            fields_input = input(f"  query_fields [default: {fields_default}] (comma-separated): ").strip()
-            if fields_input:
-                params['query_fields'] = [f.strip() for f in fields_input.split(',')]
+        # Display current fake response flag states
+        print(Color.cyan("Current Fake Response Flags (from DebugConfig):"))
+        print(f"  enabled:  {Color.yellow(str(DebugConfig.fake_response_enabled))}")
+        print(f"  update:   {Color.yellow(str(DebugConfig.fake_response_update))}")
+        print(f"  interact: {Color.yellow(str(DebugConfig.fake_response_interact))}")
+        print()
 
-            topics_default = ", ".join(params['query_topics'])
-            topics_input = input(f"  query_topics [default: {topics_default}] (comma-separated): ").strip()
-            if topics_input:
-                params['query_topics'] = [t.strip() for t in topics_input.split(',')]
+    def display_and_configure_flags(self):
+        """Display fake response flags and allow user to modify them - with modification loop"""
+        while True:
+            print_section("Step 4: Fake Response Configuration")
 
-            days_default = params['days_back']
-            days_input = input(f"  days_back [default: {days_default}] (number): ").strip()
-            if days_input:
-                try:
-                    params['days_back'] = int(days_input)
-                except ValueError:
-                    print(f"⚠ Invalid days_back, using current: {params['days_back']}")
-
-            results_default = params['max_results']
-            results_input = input(f"  max_results [default: {results_default}] (number): ").strip()
-            if results_input:
-                try:
-                    params['max_results'] = int(results_input)
-                except ValueError:
-                    print(f"⚠ Invalid max_results, using current: {params['max_results']}")
-
-            lang_default = params['language']
-            lang_input = input(f"  language [default: {lang_default}] (zh/en): ").strip().lower()
-            if lang_input in ['zh', 'en']:
-                params['language'] = lang_input
-
+            print(Color.cyan("Current Settings:"))
+            print(f"  enabled:  {Color.yellow(str(DebugConfig.fake_response_enabled))}")
+            print(f"  update:   {Color.yellow(str(DebugConfig.fake_response_update))}")
+            print(f"  interact: {Color.yellow(str(DebugConfig.fake_response_interact))}")
             print()
-            print("✓ Parameters updated")
+
+            change_flags = input(f"Change any settings? {Color.blue('(y/[n])')} ").strip().lower() or 'n'
+
+            if change_flags == 'y':
+                print("\nEnter new values (press Enter to keep current):")
+                print()
+
+                # Helper to show correct default based on current value
+                def get_prompt(name: str, current: bool) -> str:
+                    prompt_text = "([t]/f)" if current else "(t/[f])"
+                    return f"  {name} {Color.dim(f'[current: {current}]')} {Color.blue(prompt_text)}: "
+
+                enabled_input = input(get_prompt("enabled", DebugConfig.fake_response_enabled)).strip().lower()
+                if enabled_input:
+                    if enabled_input in ['true', 't', '1', 'yes', 'y']:
+                        DebugConfig.fake_response_enabled = True
+                    elif enabled_input in ['false', 'f', '0', 'no', 'n']:
+                        DebugConfig.fake_response_enabled = False
+                    else:
+                        print(f"⚠ Invalid input, keeping current: {DebugConfig.fake_response_enabled}")
+
+                update_input = input(get_prompt("update", DebugConfig.fake_response_update)).strip().lower()
+                if update_input:
+                    if update_input in ['true', 't', '1', 'yes', 'y']:
+                        DebugConfig.fake_response_update = True
+                    elif update_input in ['false', 'f', '0', 'no', 'n']:
+                        DebugConfig.fake_response_update = False
+                    else:
+                        print(f"⚠ Invalid input, keeping current: {DebugConfig.fake_response_update}")
+
+                interact_input = input(get_prompt("interact", DebugConfig.fake_response_interact)).strip().lower()
+                if interact_input:
+                    if interact_input in ['true', 't', '1', 'yes', 'y']:
+                        DebugConfig.fake_response_interact = True
+                    elif interact_input in ['false', 'f', '0', 'no', 'n']:
+                        DebugConfig.fake_response_interact = False
+                    else:
+                        print(f"⚠ Invalid input, keeping current: {DebugConfig.fake_response_interact}")
+
+                print()
+                print("✓ Settings updated")
+                print()
+                # Loop continues to show updated values
+            else:
+                # User confirmed - exit loop
+                print()
+                print("✓ Settings confirmed")
+                print()
+                break
+
+    def confirm_submission(self) -> bool:
+        """Display final config using schema-based information and ask for confirmation"""
+        print_section("Step 5: Final Submission Confirmation")
+
+        # Get the request body from self.params (built by InteractiveFieldCollector)
+        request_body = self.params.get("request_body", {})
+
+        # Display API REQUEST PARAMETERS first (before the body)
+        print(Color.cyan("API REQUEST PARAMETERS:"))
+        print(f"  agent:  {Color.yellow(self.agent_name)}")
+        api_endpoint = self.config.api_endpoint if self.config else "[NOT_CONFIGURED]"
+        print(f"  url:    {Color.yellow(api_endpoint)}")
+        print(f"  method: {Color.yellow('POST')}")
+        print()
+
+        # Display headers
+        api_key = self.config.api_key
+        if not api_key:
+            try:
+                settings = SchedulerSettings.initialize()
+                ready_agents = settings.get_ready_agents()
+                agent_config = ready_agents.get(self.agent_name)
+                if agent_config:
+                    api_key = agent_config.api_key
+            except Exception:
+                api_key = None
+
+        headers = {
+            "Authorization": f"Bearer {api_key}" if api_key else "Bearer [API_KEY_NOT_FOUND]",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+        print(Color.cyan("headers:"))
+        print(json.dumps(headers, indent=2, ensure_ascii=False))
+        print()
+
+        # Display request body as raw JSON
+        print(Color.cyan("request_body:"))
+        print(json.dumps(request_body, indent=2, ensure_ascii=False))
+        print()
+
+        # Display request body table
+        print(Color.cyan("REQUEST BODY (table):"))
+        table = FieldCollector.generate_table(self.schema_class, request_body)
+        print(table)
+        print()
+
+        # Display fake response configuration
+        print(Color.cyan("Fake Response Configuration:"))
+        print(f"  enabled:  {Color.yellow(str(DebugConfig.fake_response_enabled))}")
+        print(f"  update:   {Color.yellow(str(DebugConfig.fake_response_update))}")
+        print(f"  interact: {Color.yellow(str(DebugConfig.fake_response_interact))}")
+        print()
+
+        # Ask for confirmation with default highlighted
+        while True:
+            response = input(f"Submit request? {Color.blue('([y]/n)')} ").strip().lower() or 'y'
+            if response in ["y", "n"]:
+                return response == "y"
+            print("Please enter 'y' or 'n'")
+
+    def ask_retry_or_finish(self) -> str:
+        """Ask user to retry, modify, or finish"""
+        print_section("End of Report")
+        print("What would you like to do?")
+        print("  (r)etry    - Run the same request again")
+        print("  (m)odify   - Modify parameters and flags")
+        print("  (f)inish   - Exit the debug script")
+        print()
+
+        while True:
+            choice = input("Your choice (r/m/f): ").strip().lower()
+            if choice in ['r', 'm', 'f']:
+                return choice
+            print("Please enter 'r', 'm', or 'f'")
+
+    def verify_cache_file_updated(self, cache_file: Path, timeout_seconds: int = 3) -> bool:
+        """Verify that cache file was updated within timeout."""
+        start_time = time.time()
+
+        while time.time() - start_time < timeout_seconds:
+            if cache_file.exists():
+                # Check if file was modified recently
+                file_mtime = cache_file.stat().st_mtime
+                current_time = time.time()
+                age_seconds = current_time - file_mtime
+
+                # If file was modified within the last 2 seconds, it's fresh
+                if age_seconds < 2:
+                    print(f"✓ Cache file updated (age: {age_seconds:.1f}s)")
+                    return True
+
+            time.sleep(0.5)
+
+        print(f"❌ Cache file was NOT updated within {timeout_seconds} seconds")
+        return False
+
+    def verify_cache_modification(self, cache_file: Path, original_mtime: float, timeout_seconds: int = 3) -> bool:
+        """Verify that cache file was modified on re-submit."""
+        start_time = time.time()
+
+        while time.time() - start_time < timeout_seconds:
+            if cache_file.exists():
+                current_mtime = cache_file.stat().st_mtime
+
+                if current_mtime > original_mtime:
+                    print(f"✓ Cache file was modified (new mtime: {current_mtime})")
+                    return True
+
+            time.sleep(0.5)
+
+        print(f"❌ Cache file was NOT modified within {timeout_seconds} seconds")
+        return False
+
+    def find_cache_file(self) -> Optional[Path]:
+        """Find the cache file for this agent (excluding .metadata.json files)"""
+        cache_dir = PathManager.get_agent_cache_dir(self.agent_name)
+        if not cache_dir.exists():
+            return None
+
+        # Get the most recently modified cache file (exclude .metadata.json files)
+        cache_files = [f for f in cache_dir.glob("*.json") if not f.name.endswith(".metadata.json")]
+        if not cache_files:
+            return None
+
+        return max(cache_files, key=lambda p: p.stat().st_mtime)
+
+    def display_response_summary(self, cache_file: Optional[Path]):
+        """Display response summary and cache location"""
+        print_section("Step 6: Response Summary")
+
+        if cache_file and cache_file.exists():
+            print(f"✓ Cache file found:")
+            print(f"  Location: {cache_file}")
+            print(f"  Size: {cache_file.stat().st_size} bytes")
+            print(f"  Modified: {cache_file.stat().st_mtime}")
             print()
-            # Loop back to show updated values
+
+            # Display response body content
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+
+                print("Response Body (brief):")
+
+                # Extract response body from cache structure (stored at top level with metadata)
+                response_body = cache_data.get('response_body')
+
+                if response_body is None:
+                    print(f"  No response body found")
+                # Handle list responses
+                elif isinstance(response_body, list):
+                    print(f"  Type: list")
+                    print(f"  Length: {len(response_body)}")
+                # Handle dict responses
+                elif isinstance(response_body, dict):
+                    keys = list(response_body.keys())
+                    print(f"  Type: dict")
+                    print(f"  Keys: {keys}")
+                else:
+                    print(f"  Type: {type(response_body).__name__}")
+                print()
+            except Exception as e:
+                print(f"⚠ Could not read response content: {e}")
+                print()
         else:
-            # User confirmed - exit loop
-            print(f"✓ Parameters confirmed")
-            print()
-            break
-
-    return params
-
-
-def display_complete_request_report(agent_name: str, params: Dict[str, Any]):
-    """Display complete request report with all details and current flag states"""
-    print_section("Step 3: Complete Request Report")
-
-    agent_config = AGENT_CONFIGS[agent_name]
-
-    print(f"Agent Name: {agent_name}")
-    print(f"Agent Type: {agent_config.agent_type}")
-    print(f"API Endpoint: {agent_config.api_endpoint}")
-    print(f"HTTP Method: POST")
-    print()
-
-    print("Request Parameters:")
-    print(f"  query_fields: {params['query_fields']}")
-    print(f"  query_topics: {params['query_topics']}")
-    print(f"  days_back: {params['days_back']}")
-    print(f"  max_results: {params['max_results']}")
-    print(f"  language: {params['language']}")
-    print(f"  include_ai_summary: {params['include_ai_summary']}")
-    print(f"  include_raw_response: {params['include_raw_response']}")
-    print()
-
-    # Display template file if exists
-    template_dir = PathManager.get_templates_dir()
-    agent_template = template_dir / f"{agent_name.lower()}_prompt.jinja2"
-    if agent_template.exists():
-        print(f"✓ Using template: {agent_template}")
-    else:
-        print(f"⚠ Template not found: {agent_template}")
-    print()
-
-    # Display current fake response flag states
-    print("Current Fake Response Flags (from DebugConfig):")
-    print(f"  fake_response_enabled: {DebugConfig.fake_response_enabled}")
-    print(f"  fake_response_update: {DebugConfig.fake_response_update}")
-    print(f"  fake_response_interact: {DebugConfig.fake_response_interact}")
-    print()
-
-
-def display_and_configure_flags():
-    """Display fake response flags and allow user to modify them - with modification loop"""
-    while True:
-        print_section("Step 4: Fake Response Flags Configuration")
-
-        print("Current Fake Response Flags:")
-        print(f"  fake_response_enabled: {DebugConfig.fake_response_enabled}")
-        print(f"    └─ Whether to use cached responses at all")
-        print()
-        print(f"  fake_response_update: {DebugConfig.fake_response_update}")
-        print(f"    └─ Whether to UPDATE cache when enabled=True")
-        print()
-        print(f"  fake_response_interact: {DebugConfig.fake_response_interact}")
-        print(f"    └─ Whether to prompt user for response handling choices")
-        print()
-
-        change_flags = input("Change any flags? (y/n): ").strip().lower()
-
-        if change_flags == 'y':
-            print("\nEnter new values (press Enter to keep current):")
+            print("⚠ Cache file not found")
             print()
 
-            enabled_input = input(f"  fake_response_enabled [current: {DebugConfig.fake_response_enabled}] (true/false): ").strip().lower()
-            if enabled_input:
-                if enabled_input in ['true', 't', '1', 'yes', 'y']:
-                    DebugConfig.fake_response_enabled = True
-                elif enabled_input in ['false', 'f', '0', 'no', 'n']:
-                    DebugConfig.fake_response_enabled = False
-                else:
-                    print(f"⚠ Invalid input, keeping current: {DebugConfig.fake_response_enabled}")
+    def display_final_summary(self, cache_file: Optional[Path]):
+        """Display final summary"""
+        print_section("VERIFICATION SUMMARY")
 
-            update_input = input(f"  fake_response_update [current: {DebugConfig.fake_response_update}] (true/false): ").strip().lower()
-            if update_input:
-                if update_input in ['true', 't', '1', 'yes', 'y']:
-                    DebugConfig.fake_response_update = True
-                elif update_input in ['false', 'f', '0', 'no', 'n']:
-                    DebugConfig.fake_response_update = False
-                else:
-                    print(f"⚠ Invalid input, keeping current: {DebugConfig.fake_response_update}")
-
-            interact_input = input(f"  fake_response_interact [current: {DebugConfig.fake_response_interact}] (true/false): ").strip().lower()
-            if interact_input:
-                if interact_input in ['true', 't', '1', 'yes', 'y']:
-                    DebugConfig.fake_response_interact = True
-                elif interact_input in ['false', 'f', '0', 'no', 'n']:
-                    DebugConfig.fake_response_interact = False
-                else:
-                    print(f"⚠ Invalid input, keeping current: {DebugConfig.fake_response_interact}")
-
-            print()
-            print("✓ Flags updated")
-            print()
-            # Loop continues to show updated values
+        if cache_file and cache_file.exists():
+            print(f"✓ Cache file successfully created/updated")
+            print(f"  Location: {cache_file}")
+            print(f"  Size: {cache_file.stat().st_size} bytes")
         else:
-            # User confirmed - exit loop
-            print()
-            print("✓ Flags confirmed")
-            print()
-            break
+            print("⚠ Cache file not found or not updated")
 
+        print()
 
-def confirm_submission(agent_name: str, params: Dict[str, Any]) -> bool:
-    """Display final config summary and ask user to confirm request submission"""
-    print_section("Step 5: Final Submission Confirmation")
+    def run(self):
+        """
+        Main execution flow for the debug script.
 
-    print("FINAL REQUEST CONFIGURATION:")
-    print()
+        Workflow:
+        1. Configure parameters (with modification loop)
+        2. Display complete request report
+        3. Configure fake response flags (with modification loop)
+        4. Confirm and submit request
+        5. Verify cache updates
+        6. Display final summary
+        7. Retry/modify/finish options
+        """
+        print_header(f"AGENT DEBUG SCRIPT - {self.agent_name}")
 
-    # Agent info
-    print("Agent Information:")
-    config = AGENT_CONFIGS[agent_name]
-    print(f"  Agent Name: {agent_name}")
-    print(f"  Agent Type: {config.agent_type}")
-    print(f"  API Endpoint: {config.api_endpoint}")
-    print()
-
-    # Request parameters
-    print("Request Parameters:")
-    print(f"  Query Fields: {params.get('query_fields', [])}")
-    print(f"  Query Topics: {params.get('query_topics', [])}")
-    print(f"  Days Back: {params.get('days_back', 7)}")
-    print(f"  Max Results: {params.get('max_results', 5)}")
-    print(f"  Language: {params.get('language', 'zh')}")
-    print(f"  Include AI Summary: {params.get('include_ai_summary', True)}")
-    print(f"  Include Raw Response: {params.get('include_raw_response', True)}")
-    print()
-
-    # Fake response flags
-    print("Fake Response Flags:")
-    print(f"  fake_response_enabled: {DebugConfig.fake_response_enabled}")
-    print(f"  fake_response_update: {DebugConfig.fake_response_update}")
-    print(f"  fake_response_interact: {DebugConfig.fake_response_interact}")
-    print()
-
-    while True:
-        response = input("Submit request? (y/n): ").strip().lower()
-        if response in ['y', 'n']:
-            return response == 'y'
-        print("Please enter 'y' or 'n'")
-
-
-def ask_retry_or_finish() -> str:
-    """Ask user to retry, modify, or finish"""
-    print_section("End of Report")
-    print("What would you like to do?")
-    print("  (r)etry    - Run the same request again")
-    print("  (m)odify   - Modify parameters and flags")
-    print("  (f)inish   - Exit the debug script")
-    print()
-
-    while True:
-        choice = input("Your choice (r/m/f): ").strip().lower()
-        if choice in ['r', 'm', 'f']:
-            return choice
-        print("Please enter 'r', 'm', or 'f'")
-
-
-def submit_request(agent_name: str, params: Dict[str, Any]) -> tuple:
-    """Submit request to agent with fake response capture enabled"""
-    print_section("Step 4: Submit Request")
-
-    try:
-        # Initialize settings
-        settings = SchedulerSettings.initialize()
-        ready_agents = settings.get_ready_agents()
-
-        if agent_name not in ready_agents:
-            print(f"❌ Agent {agent_name} not available (API key not configured)")
-            return None, None
-
-        # Ensure DEBUG is enabled (but don't override user-configured flags)
+        # Enable debug mode
         DebugConfig.DEBUG = True
-        # Note: fake_response_enabled, fake_response_update, and fake_response_interact
-        # are already configured in Step 4, so we don't override them here
 
-        # Get agent config and create agent instance
-        agent_config = ready_agents[agent_name]
+        # Main loop for retry/modify
+        params_initialized = False
+        while True:
+            # Step 2: Configure parameters (skip if retrying with same params)
+            if not params_initialized:
+                clear_page()
+                self.build_request_params()
+                params_initialized = True
 
-        # Create agent dynamically based on agent type
-        if agent_name == "BOCHA":
-            agent = BochaAgent(agent_config)
-        else:
-            print(f"⚠ Agent {agent_name} implementation not yet available")
-            print(f"  (Only BOCHA agent is implemented)")
-            return None, None
+            # Step 3: Display complete request report
+            clear_page()
+            self.display_complete_request_report()
 
-        # Create QueryRequest
-        query = QueryRequest(
-            query_fields=params['query_fields'],
-            query_topics=params['query_topics'],
-            source_agents=[agent_name],
-            days_back=params['days_back'],
-            max_results=params['max_results'],
-            include_ai_summary=params['include_ai_summary'],
-            include_raw_response=params['include_raw_response'],
-            language=params['language']
-        )
+            # Step 4: Display and configure fake response flags
+            clear_page()
+            self.display_and_configure_flags()
 
-        print(f"Query ID: {query.query_id}")
-        print(f"Sending request to {agent_name}...")
-        print()
+            # Step 5: Confirm and submit
+            clear_page()
+            if not self.confirm_submission():
+                print("\n⚠ Request cancelled")
+                return
 
-        # Call API
-        query_string = " ".join(query.query_fields + query.query_topics)
-        raw_response = agent.call_api(query_string, query)
+            # Step 6: Submit request
+            clear_page()
+            query = self.build_query_from_params(self.params)
+            raw_response = self.submit_request(query, self.params)
 
-        print(f"✓ Request submitted successfully")
-        print(f"  Response type: {type(raw_response).__name__}")
-        print()
+            if raw_response is None:
+                continue
 
-        return raw_response, agent_name
+            # Step 7: Find and display response
+            clear_page()
+            cache_file = self.find_cache_file()
+            self.display_response_summary(cache_file)
 
-    except Exception as e:
-        print(f"❌ Error submitting request: {e}")
-        import traceback
-        traceback.print_exc()
-        return None, None
-
-
-def find_cache_file(agent_name: str) -> Path:
-    """Find the most recent cache file for agent"""
-    cache_dir = PathManager.get_agent_cache_dir(agent_name)
-
-    if not cache_dir.exists():
-        return None
-
-    json_files = list(cache_dir.glob("*.json"))
-    json_files = [f for f in json_files if ".metadata" not in f.name]
-
-    if not json_files:
-        return None
-
-    # Return most recent
-    return sorted(json_files, key=lambda f: f.stat().st_mtime)[-1]
-
-
-def display_response_summary(agent_name: str, cache_file: Path):
-    """Display response summary from cached file"""
-    print_section("Step 5: Response Summary")
-
-    if not cache_file:
-        print(f"❌ No cache file found for {agent_name}")
-        return
-
-    print(f"Cache file: {cache_file}")
-    print(f"File size: {cache_file.stat().st_size:,} bytes")
-    print()
-
-    try:
-        with open(cache_file, 'r', encoding='utf-8') as f:
-            cached_data = json.load(f)
-
-        # Display request body
-        print("Request body:")
-        req_body = cached_data.get('request_body', {})
-        print(f"  query_fields: {req_body.get('query_fields')}")
-        print(f"  query_topics: {req_body.get('query_topics')}")
-        print(f"  days_back: {req_body.get('days_back')}")
-        print(f"  max_results: {req_body.get('max_results')}")
-        print(f"  language: {req_body.get('language')}")
-        print()
-
-        # Display response metadata
-        print("Response metadata:")
-        resp_body = cached_data.get('response_body', {})
-        print(f"  Code: {resp_body.get('code')}")
-        print(f"  Message: {resp_body.get('msg', 'N/A')}")
-        print()
-
-        # Display response details based on agent type
-        if 'data' in resp_body and resp_body['data']:
-            data = resp_body['data']
-
-            if 'webPages' in data:
-                web_pages = data['webPages']
-                print("Web pages:")
-                print(f"  Total matches: {web_pages.get('totalEstimatedMatches', 'N/A')}")
-                print(f"  Results returned: {len(web_pages.get('value', []))}")
-
-                results = web_pages.get('value', [])
-                if results:
+            # Step 8A: Verify cache file was updated
+            if self.VERIFY_CACHE_UPDATE and cache_file:
+                print_section("Step 7A: Verify Cache File Update")
+                cache_updated = self.verify_cache_file_updated(cache_file, self.CACHE_UPDATE_TIMEOUT_SECONDS)
+                if not cache_updated:
                     print()
-                    print("First result sample:")
-                    first = results[0]
-                    print(f"  Title: {first.get('name', 'N/A')[:100]}")
-                    print(f"  URL: {first.get('url', 'N/A')[:100]}")
-                    print(f"  Source: {first.get('siteName', 'N/A')}")
-                    print(f"  Published: {first.get('datePublished', 'N/A')}")
-        print()
+                    print("❌ ERROR: Cache file was NOT updated within the timeout!")
+                    print()
+                    print("=" * 100)
+                    choice = self.ask_retry_or_finish()
+                    if choice == 'r':
+                        continue
+                    elif choice == 'm':
+                        params_initialized = False
+                        continue
+                    else:
+                        return
 
-    except Exception as e:
-        print(f"❌ Error reading cache file: {e}")
+            # Final summary
+            self.display_final_summary(cache_file)
 
+            # Final status
+            print_section("VERIFICATION RESULT")
+            if self.VERIFY_CACHE_UPDATE:
+                print("✓ Cache verification PASSED")
+                print("✓ Fake response caching is working correctly")
+            print()
+            print("=" * 100)
 
-def verify_cache_file_updated(cache_file: Path, timeout_seconds: int = 3) -> bool:
-    """
-    Verify that cache file was updated within the timeout period.
-
-    Args:
-        cache_file: Path to the cache file
-        timeout_seconds: How many seconds old the file can be
-
-    Returns:
-        bool: True if file was updated within timeout, False otherwise
-    """
-    import time
-
-    if not cache_file or not cache_file.exists():
-        return False
-
-    # Get file modification time
-    mod_time = cache_file.stat().st_mtime
-    current_time = time.time()
-    age_seconds = current_time - mod_time
-
-    print(f"Cache file modification time check:")
-    print(f"  File age: {age_seconds:.2f} seconds")
-    print(f"  Timeout: {timeout_seconds} seconds")
-    print(f"  Status: {'✓ UPDATED' if age_seconds <= timeout_seconds else '❌ NOT UPDATED'}")
-
-    return age_seconds <= timeout_seconds
-
-
-def verify_cache_modification(cache_file: Path, original_mtime: float, timeout_seconds: int = 3) -> bool:
-    """
-    Verify that cache file was modified (timestamp changed) within timeout period.
-
-    Args:
-        cache_file: Path to the cache file
-        original_mtime: Original file modification time before re-submission
-        timeout_seconds: How many seconds to wait for modification
-
-    Returns:
-        bool: True if file was modified, False otherwise
-    """
-    import time
-
-    if not cache_file or not cache_file.exists():
-        return False
-
-    print(f"\nWaiting for cache file modification...")
-    start_time = time.time()
-
-    while time.time() - start_time < timeout_seconds:
-        current_mtime = cache_file.stat().st_mtime
-        if current_mtime > original_mtime:
-            elapsed = time.time() - start_time
-            print(f"✓ Cache file modified within {elapsed:.2f} seconds")
-            print(f"  Original mtime: {original_mtime}")
-            print(f"  New mtime: {current_mtime}")
-            print(f"  File size: {cache_file.stat().st_size:,} bytes (may be same size)")
-            return True
-        time.sleep(0.1)
-
-    elapsed = time.time() - start_time
-    print(f"❌ Cache file NOT modified after {elapsed:.2f} seconds")
-    current_mtime = cache_file.stat().st_mtime
-    print(f"  Original mtime: {original_mtime}")
-    print(f"  Current mtime: {current_mtime}")
-    return False
-
-
-def resubmit_request_for_verification(agent_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Re-submit request to verify fake response capture is working.
-
-    Args:
-        agent_name: Name of the agent
-        params: Query parameters
-
-    Returns:
-        dict: Response or None if failed
-    """
-    print_section("Step 6: Verify Cache Modification - Re-submit Request")
-
-    try:
-        # Get current cache file if it exists
-        cache_dir = PathManager.get_agent_cache_dir(agent_name)
-        if cache_dir.exists():
-            json_files = list(cache_dir.glob("*.json"))
-            json_files = [f for f in json_files if ".metadata" not in f.name]
-            if json_files:
-                cache_file = sorted(json_files, key=lambda f: f.stat().st_mtime)[-1]
-                original_mtime = cache_file.stat().st_mtime
+            # Ask user what to do next
+            choice = self.ask_retry_or_finish()
+            if choice == 'r':
+                # Retry with same params (don't reset, loop back directly)
+                continue
+            elif choice == 'm':
+                # Modify - reset params_initialized to trigger parameter configuration on next loop
+                params_initialized = False
+                continue
             else:
-                original_mtime = 0
-        else:
-            original_mtime = 0
+                # Finish
+                break
 
-        # Initialize settings
-        settings = SchedulerSettings.initialize()
-        ready_agents = settings.get_ready_agents()
+        print("\n✓ Debug script completed")
 
-        if agent_name not in ready_agents:
-            print(f"❌ Agent {agent_name} not available")
-            return None
 
-        # Ensure DEBUG is enabled (but don't override user-configured flags)
-        DebugConfig.DEBUG = True
-        # Note: fake_response_enabled, fake_response_update, and fake_response_interact
-        # are already configured in Step 4, so we don't override them here
+# ==============================================================================
+# UNIFIED DEBUG SCRIPT IMPLEMENTATION
+# ==============================================================================
 
-        # Get agent config and create agent
-        agent_config = ready_agents[agent_name]
+class UnifiedDebugScript(DebugAgentScript):
+    """Concrete implementation of unified debug script for all agents."""
 
-        if agent_name == "BOCHA":
-            agent = BochaAgent(agent_config)
-        else:
-            print(f"⚠ Agent {agent_name} implementation not yet available")
-            return None
+    def get_default_configs(self) -> Dict[str, Any]:
+        """Return default configuration parameters."""
+        return {
+            "language": "zh",
+            "include_raw_response": True,
+        }
 
-        # Create QueryRequest with slightly different parameters to force new cache entry
-        query = QueryRequest(
-            query_fields=params['query_fields'],
-            query_topics=params['query_topics'],
-            source_agents=[agent_name],
-            days_back=params['days_back'],
-            max_results=params['max_results'],
-            include_ai_summary=params['include_ai_summary'],
-            include_raw_response=params['include_raw_response'],
-            language=params['language']
-        )
+    def build_query_from_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert parameters to API request format."""
+        # Get the request body from InteractiveFieldCollector
+        request_body = params.get("request_body", {})
+        return request_body
 
-        print(f"Re-submitting request to verify cache capture...")
-        print(f"Query ID: {query.query_id}")
-        print()
+    def submit_request(self, query: Dict[str, Any], params: Dict[str, Any]) -> Optional[Dict]:
+        """Execute the API call using centralized handle_api_request()."""
+        try:
+            # Get API key from environment
+            settings = SchedulerSettings.initialize()
+            ready_agents = settings.get_ready_agents()
+            agent_config = ready_agents.get(self.agent_name)
 
-        # Call API again
-        query_string = " ".join(query.query_fields + query.query_topics)
-        raw_response = agent.call_api(query_string, query)
+            if not agent_config or not agent_config.api_key:
+                print(f"❌ {self.agent_name} API key not configured")
+                return None
 
-        # Check cache modification
-        cache_dir = PathManager.get_agent_cache_dir(agent_name)
-        json_files = list(cache_dir.glob("*.json"))
-        json_files = [f for f in json_files if ".metadata" not in f.name]
+            print(f"\n📡 Submitting request to {self.agent_name} API...")
+            print()
 
-        if json_files:
-            cache_file = sorted(json_files, key=lambda f: f.stat().st_mtime)[-1]
-            modified = verify_cache_modification(cache_file, original_mtime, CACHE_MOD_TIMEOUT_SECONDS)
-            if modified:
-                print(f"✓ Cache modification verified")
+            # Build request headers
+            headers = {
+                "Authorization": f"Bearer {agent_config.api_key}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            }
+
+            # Ensure DEBUG is enabled for fake response handling
+            DebugConfig.DEBUG = True
+
+            # Use centralized request handler
+            raw_response = handle_api_request(
+                agent_name=self.agent_name,
+                url=self.config.api_endpoint,
+                method="POST",
+                description=f"{self.agent_name.lower()}_search",
+                json_body=query,
+                headers=headers,
+                timeout=120,
+                query_request=None,
+            )
+
+            if raw_response:
+                print("✓ API call successful")
+                if isinstance(raw_response, dict):
+                    print(f"  Response keys: {list(raw_response.keys())}")
                 return raw_response
             else:
-                print(f"❌ Cache file was NOT modified")
-                return raw_response
-        else:
-            print(f"❌ No cache files found")
+                print("❌ API call returned empty response")
+                return None
+
+        except Exception as e:
+            print(f"❌ Error during API call: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
-    except Exception as e:
-        print(f"❌ Error during re-submission: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
 
+# ==============================================================================
+# AGENT SELECTION AND MAIN ENTRY POINT
+# ==============================================================================
 
-def display_final_summary(agent_name: str, cache_file: Path):
-    """Display final summary and next steps"""
-    print_header("SUMMARY")
+def select_agent() -> str:
+    """Let user select an agent from available schemas."""
+    all_schemas = get_all_schemas()
+    agent_names = sorted(all_schemas.keys())
 
-    if cache_file:
-        print(f"✓ Request submitted successfully to {agent_name}")
-        print(f"✓ Cache file created/updated")
-        print()
-        print(f"Cache file location:")
-        print(f"  {cache_file}")
-        print()
-        print("To inspect the full cached response:")
-        print()
-        print(f"  # View in editor:")
-        print(f"  code {cache_file}")
-        print()
-        print(f"  # View in terminal:")
-        print(f"  cat {cache_file} | jq '.'")
-        print()
-        print(f"  # View with pretty-print:")
-        print(f"  python -m json.tool {cache_file}")
-        print()
-    else:
-        print("❌ Request failed or cache file not found")
-
-    print("=" * 100)
+    print("\nAvailable agents:")
+    for i, name in enumerate(agent_names, 1):
+        print(f"  {i}. {name}")
     print()
+
+    while True:
+        choice = input("Select agent (number): ").strip()
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(agent_names):
+                selected = agent_names[idx]
+                print(f"✓ Selected: {selected}\n")
+                return selected
+            else:
+                print("⚠ Invalid selection")
+        except ValueError:
+            print("⚠ Please enter a number")
 
 
 def main():
-    """Main debug flow with loop for retry/modify"""
-    print_header("AGENT DEBUG SCRIPT - Interactive Request Testing")
+    """Main entry point"""
+    try:
+        # Print header
+        print_header("UNIFIED AGENT DEBUG SCRIPT")
 
-    # Step 1: Select agent (do this once)
-    agent_name = select_agent()
+        # Let user select agent
+        agent_name = select_agent()
 
-    # Main loop for retry/modify
-    params = None
-    while True:
-        # Step 2: Configure parameters (skip if retrying with same params)
-        if params is None:
-            params = build_request_params()
+        # Create and run debug script
+        script = UnifiedDebugScript(agent_name)
+        script.run()
 
-        # Step 3: Display complete request report
-        display_complete_request_report(agent_name, params)
-
-        # Step 4: Display and configure fake response flags
-        display_and_configure_flags()
-
-        # Step 5: Confirm and submit
-        if not confirm_submission(agent_name, params):
-            print("\n⚠ Request cancelled")
-            return
-
-        # Step 6: Submit request
-        raw_response, _ = submit_request(agent_name, params)
-
-        if raw_response is None:
-            continue
-
-        # Step 7: Find and display response
-        cache_file = find_cache_file(agent_name)
-        display_response_summary(agent_name, cache_file)
-
-        # Step 8A: Verify cache file was updated (CHECK WITHIN 3 SECONDS)
-        if VERIFY_CACHE_UPDATE and cache_file:
-            print_section("Step 8A: Verify Cache File Update")
-            cache_updated = verify_cache_file_updated(cache_file, CACHE_UPDATE_TIMEOUT_SECONDS)
-            if not cache_updated:
-                print()
-                print("❌ ERROR: Cache file was NOT updated within the timeout!")
-                print(f"  This indicates the @fake_response_handler decorator is not working properly.")
-                print(f"  Possible causes:")
-                print(f"    1. fake_response_enabled flag is not set to True")
-                print(f"    2. fake_response_update flag is not set to True")
-                print(f"    3. The decorator is not intercepting the API call")
-                print(f"    4. Permissions issue writing to cache directory")
-                print()
-                print("=" * 100)
-                # Ask retry or finish
-                choice = ask_retry_or_finish()
-                if choice == 'r':
-                    continue
-                elif choice == 'm':
-                    params = None
-                    continue
-                else:
-                    return
-
-        # Step 8B: Verify cache modification on re-submit (RE-SUBMIT AND CHECK)
-        if VERIFY_CACHE_MODIFICATION and cache_file:
-            resubmit_response = resubmit_request_for_verification(agent_name, params)
-
-            if resubmit_response is None:
-                print()
-                print("❌ ERROR: Re-submission failed!")
-                print("=" * 100)
-                # Ask retry or finish
-                choice = ask_retry_or_finish()
-                if choice == 'r':
-                    continue
-                elif choice == 'm':
-                    params = None
-                    continue
-                else:
-                    return
-
-            print()
-
-        # Final summary
-        display_final_summary(agent_name, cache_file)
-
-        # Final status
-        print_section("CACHE VERIFICATION RESULT")
-        if VERIFY_CACHE_UPDATE and VERIFY_CACHE_MODIFICATION:
-            print("✓ All cache verification checks PASSED")
-            print("✓ Fake response caching is working correctly")
-        elif VERIFY_CACHE_UPDATE:
-            print("✓ Cache update verification PASSED")
-        elif VERIFY_CACHE_MODIFICATION:
-            print("✓ Cache modification verification PASSED")
-        print()
-        print("=" * 100)
-
-        # Ask user what to do next
-        choice = ask_retry_or_finish()
-        if choice == 'r':
-            # Retry with same params (don't reset params, loop back directly)
-            continue
-        elif choice == 'm':
-            # Modify - reset params to trigger parameter configuration on next loop
-            params = None
-            continue
-        else:
-            # Finish
-            break
+    except KeyboardInterrupt:
+        print("\n\n⚠ Script interrupted by user")
+    except Exception as e:
+        print(f"\n❌ Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

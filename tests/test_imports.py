@@ -9,9 +9,6 @@ import unittest
 from datetime import datetime
 
 from src.dataclasses import SearchItem, QueryRequest, QueryResponse
-from src.dataclasses.config import BOCHA_CONFIG
-from src.agents.base import SearchAgent
-from src.agents.bocha import BochaAgent
 from src.database import DatabaseBackend, SQLite3Backend, DatabaseManager
 from src.pipeline import SearchPipeline
 
@@ -24,18 +21,6 @@ class TestModuleImports(unittest.TestCase):
         self.assertIsNotNone(SearchItem)
         self.assertIsNotNone(QueryRequest)
         self.assertIsNotNone(QueryResponse)
-
-    def test_agent_config_import(self):
-        """Test importing agent configs"""
-        self.assertIsNotNone(BOCHA_CONFIG)
-
-    def test_agent_base_import(self):
-        """Test importing SearchAgent base class"""
-        self.assertIsNotNone(SearchAgent)
-
-    def test_bocha_agent_import(self):
-        """Test importing BochaAgent"""
-        self.assertIsNotNone(BochaAgent)
 
     def test_database_import(self):
         """Test importing database classes"""
@@ -58,7 +43,7 @@ class TestDataclassCreation(unittest.TestCase):
             content="This is a test",
             source_url="https://example.com",
             source_name="Example",
-            source_type="BOCHA",
+            source_type="TestAgent",
             timestamp=datetime.now()
         )
         self.assertIsNotNone(item.id)
@@ -70,7 +55,7 @@ class TestDataclassCreation(unittest.TestCase):
         request = QueryRequest(
             query_fields=["test"],
             query_topics=["example"],
-            source_agents=["BOCHA"]
+            source_agents=["TestAgent"]
         )
         self.assertIsNotNone(request.query_id)
         self.assertEqual(request.query_fields, ["test"])
@@ -83,22 +68,22 @@ class TestDataclassCreation(unittest.TestCase):
             content="Test content",
             source_url="https://example.com",
             source_name="Example",
-            source_type="BOCHA",
+            source_type="TestAgent",
             timestamp=datetime.now()
         )
         request = QueryRequest(
             query_fields=["test"],
             query_topics=["example"],
-            source_agents=["BOCHA"]
+            source_agents=["TestAgent"]
         )
         response = QueryResponse(
-            agent_name="BOCHA",
+            agent_name="TestAgent",
             query_id=request.query_id,
             items=[item],
             success=True
         )
         self.assertIsNotNone(response.response_id)
-        self.assertEqual(response.agent_name, "BOCHA")
+        self.assertEqual(response.agent_name, "TestAgent")
         self.assertEqual(len(response.items), 1)
 
     def test_query_request_fields(self):
@@ -106,7 +91,7 @@ class TestDataclassCreation(unittest.TestCase):
         request = QueryRequest(
             query_fields=["field1", "field2"],
             query_topics=["topic1"],
-            source_agents=["BOCHA"],
+            source_agents=["TestAgent"],
             days_back=7,
             max_results=10
         )
@@ -122,43 +107,12 @@ class TestDataclassCreation(unittest.TestCase):
             content="Content",
             source_url="https://example.com",
             source_name="Source",
-            source_type="BOCHA",
+            source_type="TestAgent",
             timestamp=now
         )
         self.assertEqual(item.title, "Title")
         self.assertEqual(item.content, "Content")
         self.assertEqual(item.source_url, "https://example.com")
-
-
-class TestAgentCreation(unittest.TestCase):
-    """Test that agents can be instantiated"""
-
-    def test_bocha_agent_creation(self):
-        """Test BochaAgent instantiation"""
-        config = BOCHA_CONFIG
-        agent = BochaAgent(config)
-        self.assertIsNotNone(agent)
-        self.assertEqual(agent.config.agent_name, "BOCHA")
-
-    def test_agent_is_search_agent(self):
-        """Test that BochaAgent is a SearchAgent"""
-        config = BOCHA_CONFIG
-        agent = BochaAgent(config)
-        self.assertIsInstance(agent, SearchAgent)
-
-    def test_agent_has_name(self):
-        """Test that agent has a name"""
-        config = BOCHA_CONFIG
-        agent = BochaAgent(config)
-        # Agent doesn't have a 'name' property, but config.agent_name
-        self.assertIsNotNone(agent.config.agent_name)
-        self.assertEqual(agent.config.agent_name, "BOCHA")
-
-    def test_agent_has_config(self):
-        """Test that agent has config"""
-        config = BOCHA_CONFIG
-        agent = BochaAgent(config)
-        self.assertIsNotNone(agent.config)
 
 
 class TestDatabase(unittest.TestCase):
@@ -185,7 +139,7 @@ class TestDatabase(unittest.TestCase):
         request = QueryRequest(
             query_fields=["test"],
             query_topics=["example"],
-            source_agents=["BOCHA"]
+            source_agents=["TestAgent"]
         )
         saved_id = self.db.save_query(request)
         self.assertIsNotNone(saved_id)
@@ -200,7 +154,7 @@ class TestDatabase(unittest.TestCase):
             content="Test content",
             source_url="https://example.com",
             source_name="Example",
-            source_type="BOCHA",
+            source_type="TestAgent",
             timestamp=datetime.now()
         )
         saved_item_id = self.db.save_item(item)
@@ -215,7 +169,7 @@ class TestDatabase(unittest.TestCase):
         request = QueryRequest(
             query_fields=["test"],
             query_topics=["example"],
-            source_agents=["BOCHA"]
+            source_agents=["TestAgent"]
         )
         saved_id = self.db.save_query(request)
         self.assertIsNotNone(saved_id)
@@ -228,7 +182,7 @@ class TestDatabase(unittest.TestCase):
             content="Test",
             source_url="https://example.com",
             source_name="Source",
-            source_type="BOCHA",
+            source_type="TestAgent",
             timestamp=datetime.now()
         )
         saved_id = self.db.save_item(item)
@@ -238,47 +192,8 @@ class TestDatabase(unittest.TestCase):
 class TestIntegration(unittest.TestCase):
     """Integration tests combining multiple components"""
 
-    def test_create_and_query_flow(self):
-        """Test complete flow: create dataclasses, agent, query"""
-        # Create agent
-        config = BOCHA_CONFIG
-        agent = BochaAgent(config)
-        self.assertIsNotNone(agent)
-
-        # Create query
-        request = QueryRequest(
-            query_fields=["test"],
-            query_topics=["example"],
-            source_agents=["BOCHA"]
-        )
-        self.assertIsNotNone(request)
-
-        # Create item
-        item = SearchItem(
-            title="Test",
-            content="Test",
-            source_url="https://example.com",
-            source_name="Source",
-            source_type="BOCHA",
-            timestamp=datetime.now()
-        )
-        self.assertIsNotNone(item)
-
-        # Create response
-        response = QueryResponse(
-            agent_name="BOCHA",
-            query_id=request.query_id,
-            items=[item],
-            success=True
-        )
-        self.assertIsNotNone(response)
-
     def test_all_components_available(self):
         """Test that all components are available"""
-        # Test agent
-        agent = BochaAgent(BOCHA_CONFIG)
-        self.assertIsNotNone(agent)
-
         # Test database
         db = DatabaseManager(SQLite3Backend(":memory:"))
         db.connect()

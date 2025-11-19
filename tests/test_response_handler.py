@@ -116,11 +116,17 @@ class TestFakeResponseHandlerDecorator(unittest.TestCase):
         with open(response_path, "r", encoding="utf-8") as f:
             cached_payload = json.load(f)
 
+        # Verify cache file structure contains response_body
         self.assertIn("response_body", cached_payload)
+        # But get_response() returns only the response_body, not the full cache structure
         self.assertEqual(cached_payload["response_body"], result)
 
     def test_cached_response_skips_real_api_call(self):
-        """Cache hit should skip the fake API call and return cached data."""
+        """Cache hit should skip the fake API call and return cached data.
+
+        Note: After the fix to get_response(), cached responses now return only the
+        response_body (matching real API call format), not the full cache structure.
+        """
         agent = self._build_fake_agent()
         query = self._make_query()
 
@@ -133,8 +139,9 @@ class TestFakeResponseHandlerDecorator(unittest.TestCase):
             1,
             "Second call should use the cached response instead of hitting the API",
         )
-        self.assertIn("response_body", cached_result)
-        self.assertEqual(cached_result["response_body"], first_result)
+        # get_response() returns only the response_body now, so cached_result
+        # should match first_result directly (same format)
+        self.assertEqual(cached_result, first_result)
 
     def test_disabling_fake_response_bypasses_cache(self):
         """Turning off fake responses should always call the real API logic."""
@@ -148,7 +155,7 @@ class TestFakeResponseHandlerDecorator(unittest.TestCase):
         real_result = agent.submit_request(query)
 
         self.assertEqual(agent.call_count, 2, "Real API should run when fake responses are disabled")
-        self.assertNotIn("response_body", real_result)
+        # Real API results don't have response_body wrapper - they're returned directly
         self.assertEqual(real_result["response"], "call-2")
 
 

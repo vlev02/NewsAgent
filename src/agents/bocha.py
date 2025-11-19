@@ -8,6 +8,7 @@ from src.dataclasses import AgentConfig, QueryRequest, QueryResponse, SearchItem
 from src.utils import get_api_time_filter, get_time_description, build_query_string
 from src.decorators import handle_api_request
 from src.debug_config import DebugConfig
+from src.schemas import validate_request_body
 from .base import SearchAgent
 
 
@@ -64,6 +65,7 @@ class BochaAgent(SearchAgent):
 
         Raises:
             requests.RequestException: If API call fails
+            ValueError: If request body fails schema validation
         """
         # Get API-specific time filter
         time_filter = get_api_time_filter(request.days_back, self.config.agent_name)
@@ -80,6 +82,11 @@ class BochaAgent(SearchAgent):
         api_params = request.get_api_param(self.config.agent_name, None) or {}
         body.update(api_params)
 
+        # Validate request body against BOCHA schema
+        # This ensures the body conforms to BOCHA API requirements
+        validated_schema = validate_request_body(self.config.agent_name, body)
+        validated_body = validated_schema.validate_and_get_dict()
+
         # Use centralized request handler with all request parameters
         # No lambda wrapper - all HTTP parameters passed directly
         return handle_api_request(
@@ -87,7 +94,7 @@ class BochaAgent(SearchAgent):
             url=self.config.api_endpoint,
             method="POST",
             description="web_search",
-            json_body=body,
+            json_body=validated_body,
             headers=self.get_header_dict(),
             timeout=120,
             query_request=request
