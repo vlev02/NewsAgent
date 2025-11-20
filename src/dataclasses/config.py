@@ -1,4 +1,9 @@
-"""Configuration dataclass for search agents"""
+"""Configuration dataclass for search agents
+
+DEPRECATED: The configuration loading logic has been moved to AgentManager.
+This module is kept for backward compatibility only.
+New code should use src.agents.manager.AgentManager instead.
+"""
 
 import yaml
 from pathlib import Path
@@ -11,9 +16,8 @@ class AgentConfig:
     """
     Configuration for a specific search agent.
 
-    This dataclass defines all necessary configuration for initializing
-    and running a search agent, including authentication, rate limiting,
-    capabilities, and default parameters.
+    All configuration is loaded from config/agents.yaml.
+    No hardcoded defaults should exist in code.
     """
     # Identity
     agent_name: str
@@ -25,38 +29,23 @@ class AgentConfig:
     auth_header_name: str = "Authorization"
     auth_prefix: str = "Bearer"
 
-    # Search capabilities
-    supports_time_filter: bool = True
-    time_filter_param_name: Optional[str] = "freshness"  # "freshness", "search_recency_filter", "start_time", or None
-    time_filter_values: Dict[int, str] = field(default_factory=dict)
-    # Example: {1: "oneDay", 7: "oneWeek", 30: "oneMonth"}
-
-    supports_ai_summary: bool = True
-    summary_param_name: Optional[str] = None  # "summary", None (implicit)
-
-    supports_streaming: bool = False
-    streaming_format: Optional[str] = None  # "sse", None
-
-    # Response structure
-    response_format: str = "openai"  # "openai" | "bocha" | "twitter" | "meta"
-    needs_json_extraction: bool = False  # For XUNFEI/HUNYUAN
-
-    # Model/version info
-    default_model: Optional[str] = None
-    available_models: List[str] = field(default_factory=list)
-
-    # Default parameters for API calls
+    # Default parameters for API calls (from agents.yaml defaults)
     default_params: Dict[str, Any] = field(default_factory=dict)
 
 
 def load_agents_from_yaml(yaml_path: str = "config/agents.yaml") -> Dict[str, AgentConfig]:
     """
-    Load agent configurations from YAML file with template support.
+    Load agent configurations from YAML file using Hydra-style hierarchy.
 
-    The YAML file now supports a template-based configuration system:
-    - Global templates define common configurations (llm_search, rest_api, social_media)
-    - Query templates define default query parameters for different regions
-    - Each agent references a template and can override specific fields
+    Config resolution order (inheritance):
+    1. Base agent config (base_agent: auth_header, auth_prefix, language)
+    2. Agent type config (agent_types: LLM_SEARCH, REST_API, SOCIAL_MEDIA)
+    3. Agent-specific query_body (only override what's needed)
+
+    YAML Structure:
+    - base_agent: Base config for all agents (auth, language)
+    - agent_types: Config by agent type (type-specific defaults)
+    - agents: Agent-specific configs with query_body (request parameters)
 
     Args:
         yaml_path: Path to agents.yaml file
@@ -74,122 +63,40 @@ def load_agents_from_yaml(yaml_path: str = "config/agents.yaml") -> Dict[str, Ag
     with open(config_file, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
 
-    # Extract templates and query templates from global config
-    templates = data.get('templates', {})
-    query_templates = data.get('query_templates', {})
+    # Extract configuration sections
+    base_agent_config = data.get('base_agent', {})
+    agent_types = data.get('agent_types', {})
 
     agents = {}
 
-    for agent_name, config in data.get('agents', {}).items():
-        # Get template reference and merge with agent-specific config
-        template_name = config.get('template', 'rest_api')
-        template = templates.get(template_name, {})
+    for agent_name, agent_config in data.get('agents', {}).items():
+        # Step 1: Start with base agent config
+        merged_query_body = base_agent_config.copy()
 
-        # Start with template, then overlay agent config
-        agent_type = config.get('type') or template.get('type', 'REST_API')
-        endpoint = config.get('endpoint', '')
+        # Step 2: Merge agent type defaults
+        agent_type = agent_config.get('type', 'REST_API')
+        type_config = agent_types.get(agent_type, {})
+        merged_query_body.update(type_config)
 
-        # Merge capabilities: start with template, apply overrides
-        template_capabilities = template.get('capabilities', {})
-        capabilities_overrides = config.get('capabilities_overrides', {})
-        capabilities = {**template_capabilities, **capabilities_overrides}
-
-        # Merge defaults: template defaults + agent defaults
-        template_defaults = template.get('defaults', {})
-        agent_defaults = config.get('defaults', {})
-        defaults = {**template_defaults, **agent_defaults}
-
-        # Determine auth header based on agent
-        if agent_name == "QIANFAN":
-            auth_header = "X-Appbuilder-Authorization"
-        else:
-            auth_header = "Authorization"
-
-        # Build time filter mapping based on agent
-        time_filter_values = {}
-        if agent_name == "BOCHA":
-            time_filter_values = {
-                1: "oneDay",
-                7: "oneWeek",
-                30: "oneMonth",
-                365: "oneYear"
-            }
-        elif agent_name == "QIANFAN":
-            time_filter_values = {
-                1: "week",
-                7: "week",
-                30: "month",
-                365: "semiyear"
-            }
-
-        # Determine time filter param name
-        if agent_name == "BOCHA":
-            time_filter_param = "freshness"
-        elif agent_name == "QIANFAN":
-            time_filter_param = "search_recency_filter"
-        elif agent_name == "TWITTER":
-            time_filter_param = "start_time"
-        else:
-            time_filter_param = None  # Embedded in prompt for LLM agents
-
-        # Determine response format
-        if agent_name == "BOCHA":
-            response_format = "bocha"
-        elif agent_name == "META":
-            response_format = "meta"
-        elif agent_name == "TWITTER":
-            response_format = "twitter"
-        else:
-            response_format = "openai"
-
-        # Extract model info
-        default_model = defaults.get('model', None)
+        # Step 3: Merge agent-specific query_body (overrides)
+        agent_query_body = agent_config.get('query_body', {})
+        merged_query_body.update(agent_query_body)
 
         # Create AgentConfig instance
-        agent_config = AgentConfig(
+        config = AgentConfig(
             agent_name=agent_name,
             agent_type=agent_type,
-            api_key="",  # Set via environment
-            api_endpoint=endpoint,
-            auth_header_name=auth_header,
-            auth_prefix="Bearer",
-            supports_time_filter=capabilities.get('supports_time_filter', True),
-            time_filter_param_name=time_filter_param,
-            time_filter_values=time_filter_values,
-            supports_ai_summary=capabilities.get('supports_ai_summary', True),
-            summary_param_name="summary" if agent_name == "BOCHA" else None,
-            supports_streaming=capabilities.get('supports_streaming', False),
-            response_format=response_format,
-            needs_json_extraction=capabilities.get('needs_json_extraction', False),
-            default_model=default_model,
-            available_models=[],  # Could extract from YAML if needed
-            default_params=defaults
+            api_key="",  # Set via environment by SchedulerSettings
+            api_endpoint=agent_config.get('endpoint', ''),
+            auth_header_name=agent_config.get('auth_header', base_agent_config.get('auth_header', 'Authorization')),
+            auth_prefix=agent_config.get('auth_prefix', base_agent_config.get('auth_prefix', 'Bearer')),
+            default_params=merged_query_body
         )
 
-        agents[agent_name] = agent_config
+        agents[agent_name] = config
 
     return agents
 
 
 # Load configurations from YAML file
-try:
-    AGENT_CONFIGS = load_agents_from_yaml()
-
-    # Create individual config variables for backward compatibility
-    XUNFEI_CONFIG = AGENT_CONFIGS.get("XUNFEI")
-    BOCHA_CONFIG = AGENT_CONFIGS.get("BOCHA")
-    HUNYUAN_CONFIG = AGENT_CONFIGS.get("HUNYUAN")
-    QIANFAN_CONFIG = AGENT_CONFIGS.get("QIANFAN")
-    META_CONFIG = AGENT_CONFIGS.get("META")
-    TWITTER_CONFIG = AGENT_CONFIGS.get("TWITTER")
-
-except FileNotFoundError as e:
-    print(f"Warning: Could not load agents.yaml: {e}")
-    print("Using empty configuration. Please ensure config/agents.yaml exists.")
-    AGENT_CONFIGS = {}
-    XUNFEI_CONFIG = None
-    BOCHA_CONFIG = None
-    HUNYUAN_CONFIG = None
-    QIANFAN_CONFIG = None
-    META_CONFIG = None
-    TWITTER_CONFIG = None
+AGENT_CONFIGS = load_agents_from_yaml()

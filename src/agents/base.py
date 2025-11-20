@@ -3,7 +3,7 @@
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Type, Union
 from uuid import uuid4
 
 from jinja2 import Template
@@ -20,23 +20,85 @@ class SearchAgent(ABC):
     - Submitting requests
     - Parsing responses
     - Normalizing timestamps
+    - Managing RequestSchema for request validation
+
+    Configuration Pattern:
+    - Agent receives AgentConfig with query_body defaults from agents.yaml
+    - Agent creates and maintains a RequestSchema instance during __init__
+    - RequestSchema validates and provides default values for requests
+    - Any modification to query_body should update the RequestSchema
 
     Template rendering is provided by the base class.
     """
+
+    # Class-level NAME property - fixed identifier for this agent
+    NAME: str = None  # Must be overridden in subclasses
 
     def __init__(self, config: AgentConfig):
         """
         Initialize search agent.
 
         Args:
-            config: AgentConfig specifying agent parameters
+            config: AgentConfig specifying agent parameters and query_body defaults
         """
         self.config = config
         self.prompt_template: Optional[Template] = None
 
+        # Extract query_body defaults from config
+        self._query_body = self.config.default_params.copy()
+
+        # Create and initialize RequestSchema
+        self.request_schema = self._initialize_request_schema()
+
         # Load prompt template if applicable
         if self.config.agent_type == "LLM_SEARCH":
             self.prompt_template = self._load_prompt_template()
+
+    @property
+    def query_body(self) -> Dict[str, Any]:
+        """
+        Get current query_body configuration.
+
+        Returns:
+            Dict with all query body parameters from config
+        """
+        return self._query_body.copy()
+
+    @query_body.setter
+    def query_body(self, value: Dict[str, Any]) -> None:
+        """
+        Update query_body configuration and refresh RequestSchema.
+
+        Args:
+            value: New query_body dict
+        """
+        self._query_body = value.copy()
+        # Update the request schema with new defaults
+        self.request_schema = self._initialize_request_schema()
+
+    @abstractmethod
+    def _get_request_schema_class(self) -> Type:
+        """
+        Get the RequestSchema class for this agent.
+
+        Returns:
+            The Pydantic RequestSchema class (e.g., BochaRequestSchema)
+        """
+        pass
+
+    def _initialize_request_schema(self):
+        """
+        Create and return initialized RequestSchema instance.
+
+        The schema is created with defaults from query_body.
+        Override in subclasses if custom initialization is needed.
+
+        Returns:
+            Initialized RequestSchema instance
+        """
+        schema_class = self._get_request_schema_class()
+        # Create instance with query_body values as defaults
+        return schema_class(**self._query_body)
 
     @abstractmethod
     def _load_prompt_template(self) -> Optional[Template]:

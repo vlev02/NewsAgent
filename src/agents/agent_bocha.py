@@ -2,14 +2,59 @@
 
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Type, Union, Literal
+
+from pydantic import Field
 
 from src.dataclasses import AgentConfig, QueryRequest, QueryResponse, SearchItem
 from src.utils import get_api_time_filter, get_time_description, build_query_string
 from src.decorators import handle_api_request
 from src.debug_config import DebugConfig
-from src.schemas import validate_request_body
 from .base import SearchAgent
+from .request_schema import RequestSchema
+
+
+class BochaRequestSchema(RequestSchema):
+    """
+    BOCHA Web Search API request body schema.
+
+    BOCHA API expects:
+    - query: single keyword string
+    - freshness: time filter enum
+    - count: number of results (1-100)
+    - summary: boolean for AI summary
+
+    All defaults come from config/agents.yaml (BOCHA.query_body)
+    """
+
+    query: str = Field(
+        default=None,
+        min_length=1,
+        max_length=1000,
+        description="Search query keywords (1-1000 characters)"
+    )
+
+    freshness: Literal["oneDay", "oneWeek", "oneMonth", "oneYear"] = Field(
+        default=None,
+        description="Time filter for search results (oneDay, oneWeek, oneMonth, oneYear)"
+    )
+
+    count: int = Field(
+        default=None,
+        ge=1,
+        le=100,
+        description="Number of results to return (1-100)"
+    )
+
+    summary: bool = Field(
+        default=None,
+        description="Include AI-generated summary in results"
+    )
+
+    class Config:
+        """Pydantic configuration"""
+        extra = "allow"  # Allow additional BOCHA-specific parameters
+        validate_assignment = True
 
 
 class BochaAgent(SearchAgent):
@@ -18,10 +63,26 @@ class BochaAgent(SearchAgent):
 
     BOCHA provides a REST API for web search with optional AI summaries.
     Supports time filtering and multi-modal search.
+
+    Configuration Pattern:
+    - Receives AgentConfig with query_body defaults from agents.yaml
+    - Maintains BochaRequestSchema instance for request validation
+    - query_body parameters: query, freshness, count, summary, language
     """
+
+    NAME: str = "BOCHA"
 
     def __init__(self, config: AgentConfig):
         super().__init__(config)
+
+    def _get_request_schema_class(self) -> Type:
+        """
+        Get the RequestSchema class for BOCHA.
+
+        Returns:
+            BochaRequestSchema class
+        """
+        return BochaRequestSchema
 
     def _load_prompt_template(self) -> Optional[None]:
         """BOCHA is a REST API, not LLM-based, so no template needed"""
@@ -84,7 +145,7 @@ class BochaAgent(SearchAgent):
 
         # Validate request body against BOCHA schema
         # This ensures the body conforms to BOCHA API requirements
-        validated_schema = validate_request_body(self.config.agent_name, body)
+        validated_schema = BochaRequestSchema(**body)
         validated_body = validated_schema.validate_and_get_dict()
 
         # Use centralized request handler with all request parameters

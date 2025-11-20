@@ -20,6 +20,10 @@ __pycache__/
 *.swp
 *.swo
 
+# Jupyter Notebooks
+*.ipynb
+.ipynb_checkpoints/
+
 # Logs & Output
 *.log
 *.out

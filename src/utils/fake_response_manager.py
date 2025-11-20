@@ -40,7 +40,7 @@ class FakeResponseManager:
         else:
             # Use PathManager - guaranteed absolute path
             try:
-                from src.scheduler.scheduler_settings import PathManager
+                from src.utils.path_manager import PathManager
                 self.base_dir = PathManager.get_cache_dir()
             except Exception:
                 # Fallback if PathManager not initialized yet

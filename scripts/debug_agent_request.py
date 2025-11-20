@@ -43,16 +43,65 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.scheduler.scheduler_settings import SchedulerSettings, PathManager
+from src.utils.path_manager import PathManager
+from src.utils.field_collector import FieldCollector, InteractiveFieldCollector
 from src.debug_config import DebugConfig
 from src.dataclasses.config import AGENT_CONFIGS
 from src.decorators import handle_api_request
-from src.schemas import (
-    get_all_schemas,
-    get_schema,
-    FieldCollector,
-    InteractiveFieldCollector,
-)
+
+# Conditional imports for agent schema classes
+# Only import schema classes for agents that are implemented
+SCHEMA_REGISTRY = {}
+
+try:
+    from src.agents.agent_bocha import BochaRequestSchema
+    SCHEMA_REGISTRY["BOCHA"] = BochaRequestSchema
+except ImportError:
+    pass
+
+try:
+    from src.agents.agent_xunfei import XunfeiRequestSchema
+    SCHEMA_REGISTRY["XUNFEI"] = XunfeiRequestSchema
+except ImportError:
+    pass
+
+try:
+    from src.agents.agent_hunyuan import HunyuanRequestSchema
+    SCHEMA_REGISTRY["HUNYUAN"] = HunyuanRequestSchema
+except ImportError:
+    pass
+
+try:
+    from src.agents.agent_qianfan import QianfanRequestSchema
+    SCHEMA_REGISTRY["QIANFAN"] = QianfanRequestSchema
+except ImportError:
+    pass
+
+try:
+    from src.agents.agent_meta import MetaRequestSchema
+    SCHEMA_REGISTRY["META"] = MetaRequestSchema
+except ImportError:
+    pass
+
+try:
+    from src.agents.agent_twitter import TwitterRequestSchema
+    SCHEMA_REGISTRY["TWITTER"] = TwitterRequestSchema
+except ImportError:
+    pass
+
+def get_schema(agent_name: str):
+    """Get RequestSchema class for an agent."""
+    if agent_name not in SCHEMA_REGISTRY:
+        available = ", ".join(SCHEMA_REGISTRY.keys())
+        raise KeyError(
+            f"No schema found for agent '{agent_name}'. "
+            f"Available agents: {available}"
+        )
+    return SCHEMA_REGISTRY[agent_name]
+
+def get_all_schemas():
+    """Get all registered schemas."""
+    return SCHEMA_REGISTRY.copy()
 
 
 # ==============================================================================

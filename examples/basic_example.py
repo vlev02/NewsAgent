@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 from src.dataclasses import QueryRequest
 from src.dataclasses.config import BOCHA_CONFIG
-from src.agents.bocha import BochaAgent
+from src.agents.agent_bocha import BochaAgent
 from src.database import SQLite3Backend, DatabaseManager
 from src.pipeline import SearchPipeline
 

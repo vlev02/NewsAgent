@@ -1,141 +1,109 @@
-# Agent configurations for NewsAgent pipeline
-# This file defines the settings for each data source agent
-#
-# GLOBAL TEMPLATES: Define agent templates at the top level
-# Each agent can inherit from a template and override specific fields
-#
-# TEMPLATES:
-# - llm_search: For LLM-based agents (XUNFEI, HUNYUAN, QIANFAN)
-# - rest_api: For REST API agents (BOCHA, META)
-# - social_media: For social media APIs (TWITTER)
+# Agent configurations using Hydra-style hierarchy
+# Structure: base_agent → agent_types → agent overrides
+# This allows minimal duplication and clear inheritance
 
 # ==============================================================================
-# GLOBAL CONFIGURATION TEMPLATES
+# BASE_AGENT: Base configuration for all agents
 # ==============================================================================
-
-templates:
-  # LLM Search Agent Template
-  llm_search:
-    type: "LLM_SEARCH"
-    capabilities:
-      supports_time_filter: true
-      supports_ai_summary: true
-      supports_streaming: false
-      needs_json_extraction: true
-    defaults:
-      temperature: 0.3
-
-  # REST API Search Template
-  rest_api:
-    type: "REST_API"
-    capabilities:
-      supports_time_filter: true
-      supports_ai_summary: true
-      supports_streaming: false
-      needs_json_extraction: false
-
-  # Social Media API Template
-  social_media:
-    type: "SOCIAL_MEDIA"
-    capabilities:
-      supports_time_filter: true
-      supports_ai_summary: false
-      supports_streaming: false
-      needs_json_extraction: false
+base_agent:
+  auth_header: "Authorization"
+  auth_prefix: "Bearer"
+  language: "zh"
 
 # ==============================================================================
-# QUERY CONFIGURATION TEMPLATES
+# AGENT_TYPES: Configuration by agent type
 # ==============================================================================
+agent_types:
+  LLM_SEARCH:
+    # LLM-based agents: XUNFEI, HUNYUAN, QIANFAN
+    temperature: 0.3
+    # Note: model and other LLM-specific params defined per agent
 
-query_templates:
-  # Default query config for Chinese market
-  default_zh:
-    language: "zh"
+  REST_API:
+    # REST API agents: BOCHA, META
+    # Default query string for search
+    query: "人工智能"
+
+  SOCIAL_MEDIA:
+    # Social media agents: TWITTER
+    sort_order: "recency"
     max_results: 10
-    days_back: 7
-
-  # Default query config for English market
-  default_en:
-    language: "en"
-    max_results: 10
-    days_back: 7
 
 # ==============================================================================
-# AGENT-SPECIFIC CONFIGURATIONS
+# AGENTS: Agent-specific overrides only
+# (Inherit from defaults + type_defaults, then override as needed)
 # ==============================================================================
-
 agents:
+  # LLM_SEARCH AGENTS
+  # ─────────────────────────────────────────────────────────────────────────
+
   XUNFEI:
     name: "Xunfei Spark"
-    enabled: true
-    template: "llm_search"
+    type: "LLM_SEARCH"
     endpoint: "https://spark-api-open.xf-yun.com/v1/chat/completions"
-    defaults:
+    auth_header: "Authorization"  # Override default if different
+    query_body:
       model: "4.0Ultra"
       temperature: 0.3
       max_tokens: 4000
       search_mode: "deep"
-    query_config: "default_zh"
-
-  BOCHA:
-    name: "BOCHA Web Search"
-    enabled: true
-    template: "rest_api"
-    endpoint: "https://api.bochaai.com/v1/web-search"
-    defaults:
-      count: 10
-      summary: true
-    query_config: "default_zh"
+      # language: inherited from base_agent
 
   HUNYUAN:
     name: "Tencent Hunyuan"
-    enabled: true
-    template: "llm_search"
+    type: "LLM_SEARCH"
     endpoint: "https://hunyuan.tencentcloudapi.com"
-    defaults:
+    query_body:
       model: "hunyuan-turbo"
       temperature: 0.3
       enable_enhancement: true
       search_info: true
-    query_config: "default_zh"
 
   QIANFAN:
     name: "Baidu Qianfan"
-    enabled: true
-    template: "llm_search"
+    type: "LLM_SEARCH"
     endpoint: "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/"
-    defaults:
+    auth_header: "X-Appbuilder-Authorization"  # Override default
+    query_body:
       model: "deepseek-r1"
       search_source: "baidu_search_v2"
       enable_reasoning: true
       temperature: 1e-10
       top_p: 1e-10
       max_completion_tokens: 20480
-    query_config: "default_zh"
-    # Note: QIANFAN overrides needs_json_extraction to false
-    capabilities_overrides:
-      needs_json_extraction: false
+
+  # REST_API AGENTS
+  # ─────────────────────────────────────────────────────────────────────────
+
+  BOCHA:
+    name: "BOCHA Web Search"
+    type: "REST_API"
+    endpoint: "https://api.bochaai.com/v1/web-search"
+    query_body:
+      query: "人工智能"
+      freshness: "oneWeek"
+      count: 10
+      summary: true
 
   META:
     name: "MetaSo Search"
-    enabled: true
-    template: "rest_api"
+    type: "REST_API"
     endpoint: "https://metaso.cn/api/v1/search"
-    defaults:
+    query_body:
+      q: "人工智能"
       scope: "webpage"
       size: "10"
-      includeRawContent: false
-    query_config: "default_zh"
-    # Note: META disables AI summary
-    capabilities_overrides:
-      supports_ai_summary: false
+      includeSummary: false
+      includeRawContent: true
+      conciseSnippet: true
+
+  # SOCIAL_MEDIA AGENTS
+  # ─────────────────────────────────────────────────────────────────────────
 
   TWITTER:
     name: "Twitter/X API v2"
-    enabled: true
-    template: "social_media"
+    type: "SOCIAL_MEDIA"
     endpoint: "https://api.twitter.com/2"
-    defaults:
+    query_body:
       sort_order: "recency"
       max_results: 10
-    query_config: "default_en"
