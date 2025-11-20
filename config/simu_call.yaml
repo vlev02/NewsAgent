@@ -1,0 +1,108 @@
+# ================================================================================
+# SimuCall (Simulation Request) Configuration
+# ================================================================================
+#
+# Controls behavior of simulated API calls for offline development and testing.
+# Three flags control all behavior: simu_call, update_response, debug
+#
+# See FLAG BEHAVIOR TABLE below for all combinations and results.
+
+# ================================================================================
+# FLAG BEHAVIOR TABLE
+# ================================================================================
+#
+# | simu_call | update_response | Cache Hit? | Behavior                   |
+# |-----------|-----------------|------------|----------------------------|
+# | -         | -               | 0          | real call, cache update    | 
+# | -         | 1               | 1          | real call, cache update    |
+# | 0         | 0               | 1          | real call, no update       |
+# | 1         | 0               | 1          | simulation call, no update |
+#
+# NOTES:
+# • "Return" = Return cached response
+# • "Call API" = Call real API, return response
+# • "Call + Save" = Call API and save to cache
+# • "debug=1" overrides simu_call and update_response (enables both)
+# • When cache exists, simu_call=1 returns cache without calling API
+# • When cache missing, API is called and optionally saved based on update_response
+#
+# ================================================================================
+# USE CASE QUICK REFERENCE
+# ================================================================================
+#
+# OFFLINE DEVELOPMENT (Capture & Use):
+#   debug: 1
+#   → First run: capture API responses
+#   → Subsequent: use cached responses
+#   → No internet needed after first run
+#
+# TESTING (Deterministic, Fast):
+#   simu_call: 1
+#   update_response: 0
+#   → Always use cached responses
+#   → Fast: ~1ms vs 100ms-5s API
+#   → No external dependencies
+#
+# CACHE REFRESH (Update Stale Data):
+#   simu_call: 0
+#   update_response: 1
+#   → Always call real API
+#   → Save responses to cache
+#   → Update cache with fresh data
+#
+# LIVE API ONLY (No Caching):
+#   simu_call: 0
+#   update_response: 0
+#   → Always call real API
+#   → No caching at all
+#   → Production default
+#
+# ================================================================================
+# FLAGS DETAILED DESCRIPTION
+# ================================================================================
+
+# Master debug flag (overrides individual flags if set to 1)
+# When debug=1:
+#   • simu_call is forced to 1 (use cache)
+#   • update_response is forced to 1 (save cache)
+#   • Perfect for offline development
+# When debug=0:
+#   • Uses individual simu_call and update_response settings
+#   • More granular control
+debug: 0
+
+# Load cached responses if available
+# When simu_call=1:
+#   • If cache exists: return cached response immediately
+#   • If cache missing: call real API
+#   • Does NOT save responses (see update_response)
+# When simu_call=0:
+#   • Always call real API
+#   • Ignore any cached responses
+simu_call: 0
+
+# Save/update cache with real API responses
+# When update_response=1:
+#   • Real API responses are automatically saved to cache
+#   • Applies only when calling real API (simu_call=0 or cache miss)
+#   • Cache files: data/simu_responses/{ClassName}/{function_name}_{md5}.json
+# When update_response=0:
+#   • Never save API responses
+#   • Existing cache remains unchanged
+update_response: 0
+
+# Directory to persist cached responses
+# Relative path to project root (will be converted to absolute path)
+# Directory structure: {persist_dir}/{class_name}/{function_name}_{md5}.json
+# Directories are auto-created as needed
+# Example: /home/user/project/data/simu_responses/BochaAgent/submit_request_a1b2c3d4e5f6g7h8.json
+persist_dir: "data/simu_responses"
+
+# Enable detailed logging of simulation calls
+# When log_calls=1:
+#   • Log cache hits: "[SimuCall] ClassName.method (hash: xxx)"
+#   • Log cache misses: "→ Calling real API"
+#   • Log cache saves: "→ Cached response to ..."
+# When log_calls=0:
+#   • Silent mode (no console output)
+log_calls: 1

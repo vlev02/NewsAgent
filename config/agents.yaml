@@ -8,7 +8,6 @@
 base_agent:
   auth_header: "Authorization"
   auth_prefix: "Bearer"
-  language: "zh"
 
 # ==============================================================================
 # AGENT_TYPES: Configuration by agent type

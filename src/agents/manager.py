@@ -1,34 +1,37 @@
 """Agent Manager - Centralized agent instantiation and lifecycle management"""
 
 import yaml
+import importlib
+import os
 from pathlib import Path
 from typing import Dict, Any, Type, Optional
-from dataclasses import dataclass, field
 
+from src.dataclasses import AgentConfig
 from src.agents.base import SearchAgent
-from src.agents.agent_bocha import BochaAgent
 
 
-@dataclass
-class AgentConfig:
+def _auto_load_agents():
     """
-    Configuration for a specific search agent.
+    Automatically load all agent modules from the agents directory.
 
-    All configuration is loaded from config/agents.yaml.
-    No hardcoded defaults should exist in code.
+    This function scans the agents directory for all agent_*.py files and imports them.
+    This ensures all SearchAgent subclasses are registered before discovery.
+
+    No manual imports needed - just create a new agent_xxx.py file and it's automatically loaded.
     """
-    # Identity
-    agent_name: str
-    agent_type: str  # "LLM_SEARCH" | "REST_API" | "SOCIAL_MEDIA"
+    agents_dir = Path(__file__).parent
 
-    # Authentication
-    api_key: str
-    api_endpoint: str
-    auth_header_name: str = "Authorization"
-    auth_prefix: str = "Bearer"
+    # Find all agent_*.py files in the agents directory
+    for agent_file in agents_dir.glob("agent_*.py"):
+        module_name = agent_file.stem  # e.g., "agent_bocha"
 
-    # Default parameters for API calls (from agents.yaml defaults)
-    default_params: Dict[str, Any] = field(default_factory=dict)
+        try:
+            # Dynamically import the module
+            full_module_name = f"src.agents.{module_name}"
+            importlib.import_module(full_module_name)
+        except (ImportError, Exception):
+            # Silently skip agents that fail to import (e.g., dependencies not installed)
+            pass
 
 
 class AgentManager:
@@ -43,16 +46,41 @@ class AgentManager:
     - Ensure each agent maintains its RequestSchema
     """
 
-    # Registry of implemented agent classes
-    _AGENT_REGISTRY: Dict[str, Type[SearchAgent]] = {
-        "BOCHA": BochaAgent,
-        # Future agents:
-        # "XUNFEI": XunfeiAgent,
-        # "HUNYUAN": HunyuanAgent,
-        # "QIANFAN": QianfanAgent,
-        # "META": MetaAgent,
-        # "TWITTER": TwitterAgent,
-    }
+    @classmethod
+    def _discover_agents(cls) -> Dict[str, Type[SearchAgent]]:
+        """
+        Auto-discover all SearchAgent subclasses and build registry by their NAME property.
+
+        This method recursively finds all classes that inherit from SearchAgent,
+        eliminating the need for manual registration lists.
+
+        Each agent class must have a NAME class attribute for identification.
+
+        Returns:
+            Dict mapping agent NAME to agent class
+        """
+        # Auto-load all agent modules from the agents directory
+        _auto_load_agents()
+
+        registry = {}
+
+        def get_all_subclasses(base_class):
+            """Recursively get all subclasses of a base class"""
+            all_subclasses = []
+            for subclass in base_class.__subclasses__():
+                all_subclasses.append(subclass)
+                all_subclasses.extend(get_all_subclasses(subclass))
+            return all_subclasses
+
+        # Get all SearchAgent subclasses
+        all_agents = get_all_subclasses(SearchAgent)
+
+        # Index by NAME property
+        for agent_class in all_agents:
+            if hasattr(agent_class, 'NAME') and agent_class.NAME:
+                registry[agent_class.NAME] = agent_class
+
+        return registry
 
     def __init__(self, config_path: str = "config/agents.yaml"):
         """
@@ -62,7 +90,10 @@ class AgentManager:
             config_path: Path to agents.yaml configuration file
         """
         self.config_path = config_path
-        self._agent_configs: Dict[str, AgentConfig] = {}
+        self._agent_configs: Dict[str, AgentConfig] = {}  # Configurations from YAML + env
+        self._agent_instances: Dict[str, SearchAgent] = {}  # Cached agent instances
+        self.all_keys: Dict[str, str] = {}  # API keys storage (name -> value)
+        self._agent_registry: Dict[str, Type[SearchAgent]] = self._discover_agents()
         self._load_configurations()
 
     def _load_configurations(self) -> None:
@@ -92,32 +123,23 @@ class AgentManager:
         with open(config_file, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
 
-        # Extract configuration sections
+        # Extract base agent config for auth defaults
         base_agent_config = data.get('base_agent', {})
-        agent_types = data.get('agent_types', {})
 
         for agent_name, agent_config in data.get('agents', {}).items():
-            # Step 1: Start with base agent config
-            merged_query_body = base_agent_config.copy()
-
-            # Step 2: Merge agent type defaults
             agent_type = agent_config.get('type', 'REST_API')
-            type_config = agent_types.get(agent_type, {})
-            merged_query_body.update(type_config)
 
-            # Step 3: Merge agent-specific query_body (overrides)
+            # Get pure agent-specific query_body (only what the API needs)
             agent_query_body = agent_config.get('query_body', {})
-            merged_query_body.update(agent_query_body)
 
-            # Create AgentConfig instance
+            # Create AgentConfig instance with pure agent parameters only
             config = AgentConfig(
                 agent_name=agent_name,
                 agent_type=agent_type,
-                api_key="",  # Set via environment
                 api_endpoint=agent_config.get('endpoint', ''),
                 auth_header_name=agent_config.get('auth_header', base_agent_config.get('auth_header', 'Authorization')),
                 auth_prefix=agent_config.get('auth_prefix', base_agent_config.get('auth_prefix', 'Bearer')),
-                default_params=merged_query_body
+                request_body_params=agent_query_body
             )
 
             self._agent_configs[agent_name] = config
@@ -125,15 +147,19 @@ class AgentManager:
     @property
     def agent_marketplace(self) -> Dict[str, str]:
         """
-        Get marketplace of available agents.
+        Get marketplace of available (implemented) agents.
+
+        Returns only agents that are actually implemented (in _agent_registry).
 
         Returns:
             Dict mapping agent name to agent type
-            Example: {"BOCHA": "REST_API", "XUNFEI": "LLM_SEARCH", ...}
+            Example: {"BOCHA": "REST_API"}
         """
         marketplace = {}
-        for agent_name, config in self._agent_configs.items():
-            marketplace[agent_name] = config.agent_type
+        for agent_name in self._agent_registry.keys():
+            if agent_name in self._agent_configs:
+                config = self._agent_configs[agent_name]
+                marketplace[agent_name] = config.agent_type
         return marketplace
 
     @property
@@ -141,20 +167,21 @@ class AgentManager:
         """Alias for agent_marketplace for convenience"""
         return self.agent_marketplace
 
-    def create_agent(self, agent_name: str, api_key: str = None) -> SearchAgent:
+    def create_agent(self, agent_name: str) -> SearchAgent:
         """
         Create and initialize an agent instance.
 
         Process:
-        1. Get agent configuration from YAML
-        2. Look up agent class from registry
-        3. Set API key (from parameter or environment)
-        4. Initialize agent with config
-        5. Agent creates and maintains RequestSchema instance during __init__
+        1. Get agent configuration from YAML + env vars
+        2. Check if agent is implemented in registry
+        3. Acquire all required API keys from manager's all_keys or environment
+        4. Inject all keys into config.api_keys dict
+        5. Initialize agent with config
+        6. Cache agent instance in _agent_instances
+        7. Agent creates and maintains RequestSchema instance during __init__
 
         Args:
             agent_name: Name of agent to create (e.g., "BOCHA", "XUNFEI")
-            api_key: API key for the agent (if not provided, assumes environment setup)
 
         Returns:
             Initialized SearchAgent instance with maintained RequestSchema
@@ -162,7 +189,7 @@ class AgentManager:
         Raises:
             KeyError: If agent not found in configuration
             KeyError: If agent not implemented in registry
-            ValueError: If no API key provided and agent has no default
+            KeyError: If required API keys not found
         """
         # Get configuration for this agent
         if agent_name not in self._agent_configs:
@@ -172,31 +199,30 @@ class AgentManager:
                 f"Available agents: {available}"
             )
 
-        config = self._agent_configs[agent_name]
-
         # Check if agent is implemented
-        if agent_name not in self._AGENT_REGISTRY:
-            available = ", ".join(self._AGENT_REGISTRY.keys())
+        if agent_name not in self._agent_registry:
+            available = ", ".join(self._agent_registry.keys())
             raise KeyError(
                 f"Agent '{agent_name}' is not implemented. "
                 f"Implemented agents: {available}"
             )
 
-        # Set API key if provided
-        if api_key:
-            config.api_key = api_key
-        elif not config.api_key:
-            # Warn if no default config provided
-            import warnings
-            warnings.warn(
-                f"No API key provided for agent '{agent_name}' and no default found. "
-                f"Agent initialization may fail at runtime.",
-                UserWarning
-            )
+        # Get agent class and acquire its required API keys
+        agent_class = self._agent_registry[agent_name]
 
-        # Get agent class and instantiate
-        agent_class = self._AGENT_REGISTRY[agent_name]
+        # Create a copy of config for this instance
+        config = self._agent_configs[agent_name]
+
+        # Acquire all required API keys from manager or environment
+        acquired_keys = self._acquire_agent_keys(agent_class)
+        # Store all acquired keys in config.api_keys dict
+        config.api_keys = acquired_keys
+
+        # Instantiate the agent
         agent = agent_class(config)
+
+        # Cache the agent instance
+        self._agent_instances[agent_name] = agent
 
         return agent
 
@@ -204,14 +230,17 @@ class AgentManager:
         """
         Get configuration for a specific agent.
 
+        Internal method used to retrieve agent configuration. Exposed for access
+        to configuration details without creating an agent instance.
+
         Args:
             agent_name: Name of the agent
 
         Returns:
-            AgentConfig instance
+            AgentConfig instance with configuration from YAML + env vars
 
         Raises:
-            KeyError: If agent not found
+            KeyError: If agent not found in configuration
         """
         if agent_name not in self._agent_configs:
             available = ", ".join(self._agent_configs.keys())
@@ -226,9 +255,98 @@ class AgentManager:
         Get all agent configurations.
 
         Returns:
-            Dict mapping agent names to their configurations
+            Dict mapping agent names to their AgentConfig instances
         """
         return self._agent_configs.copy()
+
+    def get_cached_agents(self) -> Dict[str, SearchAgent]:
+        """
+        Get all cached agent instances.
+
+        Returns:
+            Dict mapping agent names to their SearchAgent instances
+            Only includes agents that have been created via create_agent()
+        """
+        return self._agent_instances.copy()
+
+    def add_api_key(self, key_name: str, key_value: str) -> None:
+        """
+        Add an API key to the manager's key storage.
+
+        Args:
+            key_name: Name of the key (e.g., "BOCHA_API_KEY", "XUNFEI_APPID")
+            key_value: The API key value
+        """
+        self.all_keys[key_name] = key_value
+
+    def add_api_keys(self, keys: Dict[str, str]) -> None:
+        """
+        Add multiple API keys at once.
+
+        Args:
+            keys: Dict mapping key names to their values
+                  Example: {"BOCHA_API_KEY": "...", "XUNFEI_APPID": "..."}
+        """
+        self.all_keys.update(keys)
+
+    def _get_api_key(self, key_name: str) -> Optional[str]:
+        """
+        Get an API key from manager's all_keys or environment variables.
+
+        Checks in order:
+        1. Manager's all_keys dict
+        2. Environment variable with same name
+
+        Args:
+            key_name: Name of the key to retrieve
+
+        Returns:
+            The API key value, or None if not found
+        """
+        # Check manager's all_keys first
+        if key_name in self.all_keys:
+            return self.all_keys[key_name]
+
+        # Check environment variable
+        key_value = os.environ.get(key_name)
+        if key_value:
+            # Cache it in all_keys for future use
+            self.all_keys[key_name] = key_value
+            return key_value
+
+        return None
+
+    def _acquire_agent_keys(self, agent_class: Type[SearchAgent]) -> Dict[str, str]:
+        """
+        Acquire all required API keys for an agent.
+
+        Retrieves keys from manager's all_keys or environment variables.
+
+        Args:
+            agent_class: The agent class to get keys for
+
+        Returns:
+            Dict mapping key names to their values
+
+        Raises:
+            KeyError: If any required key is not found
+        """
+        keys = {}
+
+        # Get required keys from agent class
+        required_keys = getattr(agent_class, 'api_keys', [])
+
+        for key_name in required_keys:
+            key_value = self._get_api_key(key_name)
+            if key_value is None:
+                raise KeyError(
+                    f"API key '{key_name}' required by {agent_class.NAME} not found. "
+                    f"Add it via manager.add_api_key('{key_name}', value) "
+                    f"or set environment variable {key_name}"
+                )
+            keys[key_name] = key_value
+
+        return keys
 
     def register_agent(self, agent_name: str, agent_class: Type[SearchAgent]) -> None:
         """

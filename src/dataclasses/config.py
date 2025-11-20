@@ -18,19 +18,27 @@ class AgentConfig:
 
     All configuration is loaded from config/agents.yaml.
     No hardcoded defaults should exist in code.
+
+    API Key Management:
+    - api_keys: Dict[str, str] - Dictionary of all API keys required by agent
+      Example: {"BOCHA_API_KEY": "...", "XUNFEI_APPID": "...", "XUNFEI_APIKey": "..."}
+    - Agent declares required keys via api_keys class attribute (List[str])
+    - AgentManager acquires and injects keys into config.api_keys during create_agent()
     """
     # Identity
     agent_name: str
     agent_type: str  # "LLM_SEARCH" | "REST_API" | "SOCIAL_MEDIA"
 
-    # Authentication
-    api_key: str
-    api_endpoint: str
+    # Endpoint
+    api_endpoint: str = ""
     auth_header_name: str = "Authorization"
     auth_prefix: str = "Bearer"
 
-    # Default parameters for API calls (from agents.yaml defaults)
-    default_params: Dict[str, Any] = field(default_factory=dict)
+    # API Keys Management
+    api_keys: Dict[str, str] = field(default_factory=dict)  # All required keys for the agent
+
+    # Request body parameters (from agents.yaml defaults)
+    request_body_params: Dict[str, Any] = field(default_factory=dict)
 
 
 def load_agents_from_yaml(yaml_path: str = "config/agents.yaml") -> Dict[str, AgentConfig]:
@@ -63,34 +71,25 @@ def load_agents_from_yaml(yaml_path: str = "config/agents.yaml") -> Dict[str, Ag
     with open(config_file, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
 
-    # Extract configuration sections
+    # Extract base agent config for auth defaults
     base_agent_config = data.get('base_agent', {})
-    agent_types = data.get('agent_types', {})
 
     agents = {}
 
     for agent_name, agent_config in data.get('agents', {}).items():
-        # Step 1: Start with base agent config
-        merged_query_body = base_agent_config.copy()
-
-        # Step 2: Merge agent type defaults
         agent_type = agent_config.get('type', 'REST_API')
-        type_config = agent_types.get(agent_type, {})
-        merged_query_body.update(type_config)
 
-        # Step 3: Merge agent-specific query_body (overrides)
+        # Get pure agent-specific query_body (only what the API needs)
         agent_query_body = agent_config.get('query_body', {})
-        merged_query_body.update(agent_query_body)
 
-        # Create AgentConfig instance
+        # Create AgentConfig instance with pure agent parameters only
         config = AgentConfig(
             agent_name=agent_name,
             agent_type=agent_type,
-            api_key="",  # Set via environment by SchedulerSettings
             api_endpoint=agent_config.get('endpoint', ''),
             auth_header_name=agent_config.get('auth_header', base_agent_config.get('auth_header', 'Authorization')),
             auth_prefix=agent_config.get('auth_prefix', base_agent_config.get('auth_prefix', 'Bearer')),
-            default_params=merged_query_body
+            request_body_params=agent_query_body
         )
 
         agents[agent_name] = config

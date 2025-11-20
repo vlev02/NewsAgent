@@ -3,13 +3,12 @@
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, Dict, List, Type, Union
 from uuid import uuid4
 
-from jinja2 import Template
-
 from src.dataclasses import AgentConfig, QueryRequest, QueryResponse, SearchItem
-
+from src.utils.simu_request import SimuRequest
+import requests
 
 class SearchAgent(ABC):
     """
@@ -28,11 +27,18 @@ class SearchAgent(ABC):
     - RequestSchema validates and provides default values for requests
     - Any modification to query_body should update the RequestSchema
 
-    Template rendering is provided by the base class.
+    API Key Management:
+    - Each agent declares required api_keys (class attribute)
+    - Example: api_keys = ["BOCHA_API_KEY"] or ["XUNFEI_APPID", "XUNFEI_APIKey"]
+    - AgentManager acquires keys from its all_keys dict or environment variables
+    - Keys are injected into agent config during initialization
     """
 
     # Class-level NAME property - fixed identifier for this agent
     NAME: str = None  # Must be overridden in subclasses
+
+    # Class-level api_keys - list of required API keys for this agent
+    api_keys: List[str] = []  # Override in subclasses if agent needs specific keys
 
     def __init__(self, config: AgentConfig):
         """
@@ -41,38 +47,55 @@ class SearchAgent(ABC):
         Args:
             config: AgentConfig specifying agent parameters and query_body defaults
         """
-        self.config = config
-        self.prompt_template: Optional[Template] = None
+        # Extract config values into separate attributes
+        self.agent_type = config.agent_type
+        self.api_endpoint = config.api_endpoint
+        self.auth_header_name = config.auth_header_name
+        self.auth_prefix = config.auth_prefix
+        self.api_keys_dict = config.api_keys
 
         # Extract query_body defaults from config
-        self._query_body = self.config.default_params.copy()
+        self._request_body_args = {}
+        self.request_body_args = config.request_body_params.copy()
+        print(f"{self.request_body = }")
 
-        # Create and initialize RequestSchema
-        self.request_schema = self._initialize_request_schema()
-
-        # Load prompt template if applicable
-        if self.config.agent_type == "LLM_SEARCH":
-            self.prompt_template = self._load_prompt_template()
 
     @property
-    def query_body(self) -> Dict[str, Any]:
+    def request_body(self) -> Dict[str, Any]:
         """
-        Get current query_body configuration.
+        Get current request body ready for requests.post (read-only).
+
+        This is dynamically generated from request_schema and returns the
+        validated request body that will be sent in the HTTP request.
+        To update, use the request_body_args property setter.
 
         Returns:
-            Dict with all query body parameters from config
+            Dict with validated request body parameters ready for API call
         """
-        return self._query_body.copy()
+        return self.request_schema.validate_and_get_dict()
 
-    @query_body.setter
-    def query_body(self, value: Dict[str, Any]) -> None:
+    @property
+    def request_body_args(self) -> Dict[str, Any]:
         """
-        Update query_body configuration and refresh RequestSchema.
+        Get current request body arguments.
+
+        Returns:
+            Dict with all request body parameters
+        """
+        return self._request_body_args.copy()
+
+    @request_body_args.setter
+    def request_body_args(self, value: Dict[str, Any]) -> None:
+        """
+        Update request body arguments and refresh RequestSchema.
+
+        Updates _request_body_args and reinitializes the RequestSchema.
+        The request_body property will automatically reflect changes.
 
         Args:
-            value: New query_body dict
+            value: New request body args dict
         """
-        self._query_body = value.copy()
+        self._request_body_args.update(value)
         # Update the request schema with new defaults
         self.request_schema = self._initialize_request_schema()
 
@@ -90,227 +113,75 @@ class SearchAgent(ABC):
         """
         Create and return initialized RequestSchema instance.
 
-        The schema is created with defaults from query_body.
+        The schema is created with defaults from request_body_args.
+        Only passes fields that are defined in the schema (filters out config-only params).
         Override in subclasses if custom initialization is needed.
 
         Returns:
             Initialized RequestSchema instance
         """
         schema_class = self._get_request_schema_class()
-        # Create instance with query_body values as defaults
-        return schema_class(**self._query_body)
 
-    @abstractmethod
-    def _load_prompt_template(self) -> Optional[Template]:
-        """
-        Load and return Jinja2 template for this agent.
+        # Get the fields defined in the schema
+        schema_fields = schema_class.model_fields.keys()
 
-        Returns:
-            Jinja2 Template or None if not applicable
-        """
-        pass
-
-    @abstractmethod
-    def build_query(self, request: QueryRequest) -> Union[str, Dict[str, Any]]:
-        """
-        Build API-specific query from QueryRequest.
-
-        Args:
-            request: QueryRequest with search parameters
-
-        Returns:
-            String (for REST APIs) or Dict (for LLM APIs)
-        """
-        pass
-
-    def render_prompt(self,
-                     query_fields: List[str],
-                     query_topics: List[str],
-                     **kwargs) -> str:
-        """
-        Render Jinja2 prompt template with provided parameters.
-
-        Automatically injects common parameters like date and language.
-
-        Args:
-            query_fields: Main search domains
-            query_topics: Specific topics to focus on
-            **kwargs: Additional template parameters
-
-        Returns:
-            Rendered prompt string
-        """
-        if not self.prompt_template:
-            raise ValueError(f"Agent {self.config.agent_name} does not have a prompt template")
-
-        context = {
-            "query_fields": query_fields,
-            "query_topics": query_topics,
-            "current_date": datetime.now().strftime("%Y-%m-%d"),
-            "current_datetime": datetime.now().isoformat(),
-            "agent_name": self.config.agent_name,
-            "language": self.config.default_params.get("language", "zh"),
-            **kwargs
+        # Filter request_body_args to only include schema-defined fields
+        filtered_args = {
+            key: value
+            for key, value in self._request_body_args.items()
+            if key in schema_fields
         }
-        return self.prompt_template.render(context)
 
-    def get_status(self) -> Dict[str, Any]:
-        """
-        Get current agent status.
-
-        Returns:
-            Dict with fields:
-            - agent_name: str
-            - is_available: bool
-            - quota_remaining: int
-            - last_call_time: datetime
-            - calls_today: int
-        """
-        pass
-
-    def call_api(self,
-                 query: Union[str, Dict[str, Any]],
-                 request: QueryRequest) -> Any:
-        """
-        Pure API call - only makes HTTP request and returns raw response.
-
-        OPTIONAL: Implement this in subclasses that need to:
-        - Cache raw API responses for debugging
-        - Support offline development with fake responses
-        - Handle unpredictable API response formats
-
-        Default implementation raises NotImplementedError.
-        Override in subclasses to provide pure API call without post-processing.
-
-        Example (BOCHA):
-            def call_api(self, query, request) -> Dict[str, Any]:
-                '''Make HTTP request via centralized handle_api_request(), return raw JSON only'''
-                return handle_api_request(
-                    agent_name=self.config.agent_name,
-                    url=self.config.api_endpoint,
-                    method="POST",
-                    description="web_search",
-                    json_body=body,
-                    headers=self.get_header_dict(),
-                    timeout=120,
-                    query_request=request
-                )
-
-        Args:
-            query: Prepared query (string or dict)
-            request: Original QueryRequest for context
-
-        Returns:
-            Raw API response (dict, list, or any JSON-serializable type)
-
-        Raises:
-            NotImplementedError: If not overridden in subclass
-        """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not implement call_api(). "
-            "Override this method to enable raw response caching."
-        )
-
+        # Create instance with filtered request_body_args as defaults
+        return schema_class(**filtered_args)
+    
     @abstractmethod
-    def submit_request(self,
-                      query: Union[str, Dict[str, Any]],
-                      request: QueryRequest) -> QueryResponse:
-        """
-        Execute the actual API call and return parsed results.
-
-        This method should:
-        1. Call call_api() for pure API operation (if implemented)
-        2. Parse raw response into SearchItem list
-        3. Build and return QueryResponse with results
-
-        Alternatively, if call_api() is not needed, directly implement
-        the full request/response cycle here.
-
-        Args:
-            query: Prepared query (string or dict)
-            request: Original QueryRequest for context
-
-        Returns:
-            QueryResponse with results
-        """
-        pass
-
-    @abstractmethod
-    def parse_response(self, raw_response: Any) -> List[SearchItem]:
-        """
-        Parse raw API response into normalized SearchItem list.
-
-        Handles API-specific response structures and formats.
-
-        Args:
-            raw_response: Raw API response
-
-        Returns:
-            List of SearchItem objects
-        """
-        pass
-
-    @abstractmethod
-    def normalize_timestamp(self, timestamp_str: str) -> datetime:
-        """
-        Convert API-specific timestamp format to datetime.
-
-        Args:
-            timestamp_str: Timestamp in API-specific format
-
-        Returns:
-            Normalized datetime object
-        """
-        pass
-
-    def submit_and_parse(self, request: QueryRequest) -> QueryResponse:
-        """
-        High-level method: build query, submit, parse, return QueryResponse.
-
-        Includes error handling, rate-limit checking, and metrics collection.
-
-        Args:
-            request: QueryRequest to execute
-
-        Returns:
-            QueryResponse with all data
-        """
-        try:
-            # Build query
-            query = self.build_query(request)
-
-            # Execute
-            start_time = time.time()
-            response = self.submit_request(query, request)
-            response.execution_time_ms = int((time.time() - start_time) * 1000)
-            response.response_id = str(uuid4())
-            response.agent_name = self.config.agent_name
-            response.query_id = request.query_id
-            response.timestamp = datetime.now()
-
-            return response
-
-        except Exception as e:
-            return QueryResponse(
-                response_id=str(uuid4()),
-                agent_name=self.config.agent_name,
-                query_id=request.query_id,
-                timestamp=datetime.now(),
-                items=[],
-                success=False,
-                error_message=f"{type(e).__name__}: {str(e)}",
-                status="failed"
-            )
-
     def get_header_dict(self) -> Dict[str, str]:
         """
         Get HTTP headers for API requests.
 
+        Extracts API keys from api_keys_dict and constructs headers.
+
         Returns:
-            Dict with Authorization header and others
+            Dict with Authorization header and any other required headers
         """
-        headers = {
-            self.config.auth_header_name: f"{self.config.auth_prefix} {self.config.api_key}",
-            "Content-Type": "application/json"
+        pass
+
+    @SimuRequest.simu_request
+    def submit_request(self):
+        """
+        Submit request to API with optional caching via SimuRequest decorator.
+
+        The SimuRequest decorator automatically:
+        - Caches responses based on class name and method name
+        - Handles cache hits/misses based on simu_call and update_response flags
+        - Logs cache operations based on log_calls flag
+
+        Configuration is controlled by:
+        - config/simu_call.yaml (default settings)
+        - SimuRequest.update_behaviors() (runtime changes)
+
+        Returns:
+            Dict with API response or cached response
+        """
+        # Prepare HTTP request arguments
+        request_args = {
+            "url": self.api_endpoint,
+            "method": "POST",
+            "json": self.request_body,  # Only API-relevant fields
+            "headers": self.get_header_dict(),  # Authorization header
+            "timeout": 30
         }
-        return headers
+
+        # Store request metadata for decorator to capture
+        self._last_request_metadata = request_args.copy()
+
+        api_response = requests.request(**request_args)
+        try:
+            response_json = api_response.json()
+        except:
+            response_json = {
+                "code": "unknown",
+                "content": str(api_response)
+            }
+        return response_json
