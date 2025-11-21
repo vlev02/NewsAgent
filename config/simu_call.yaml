@@ -61,16 +61,6 @@
 # FLAGS DETAILED DESCRIPTION
 # ================================================================================
 
-# Master debug flag (overrides individual flags if set to 1)
-# When debug=1:
-#   • simu_call is forced to 1 (use cache)
-#   • update_response is forced to 1 (save cache)
-#   • Perfect for offline development
-# When debug=0:
-#   • Uses individual simu_call and update_response settings
-#   • More granular control
-debug: 0
-
 # Load cached responses if available
 # When simu_call=1:
 #   • If cache exists: return cached response immediately
@@ -79,7 +69,7 @@ debug: 0
 # When simu_call=0:
 #   • Always call real API
 #   • Ignore any cached responses
-simu_call: 0
+simu_call: 1
 
 # Save/update cache with real API responses
 # When update_response=1:

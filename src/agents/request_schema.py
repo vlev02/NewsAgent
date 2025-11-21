@@ -33,3 +33,37 @@ class RequestSchema(BaseModel):
             ValueError: If validation fails
         """
         return self.model_dump(exclude_none=True)
+
+
+class TemplateSchema(BaseModel):
+    """
+    Base template schema for LLM agents using Jinja2 templates.
+
+    All agent-specific TemplateSchema classes should inherit from this base class.
+    This provides a unified interface for template variable validation.
+
+    Features:
+    - Flexible field validation (extra fields allowed for agent-specific template vars)
+    - Assignment validation to catch field errors at assignment time
+    - Common method for converting to validated dictionary
+    - Template path configuration
+
+    Used by LLM_SEARCH agents that use Jinja2 templates for dynamic prompt generation.
+    """
+
+    class Config:
+        """Pydantic configuration"""
+        extra = "allow"  # Allow extra fields for agent-specific template variables
+        validate_assignment = True
+
+    def validate_and_get_dict(self) -> dict[str, Any]:
+        """
+        Validate and convert template schema to dictionary.
+
+        Returns:
+            Dictionary representation of validated template variables with None values excluded
+
+        Raises:
+            ValueError: If validation fails
+        """
+        return self.model_dump(exclude_none=True)

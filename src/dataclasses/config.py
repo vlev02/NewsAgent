@@ -24,6 +24,11 @@ class AgentConfig:
       Example: {"BOCHA_API_KEY": "...", "XUNFEI_APPID": "...", "XUNFEI_APIKey": "..."}
     - Agent declares required keys via api_keys class attribute (List[str])
     - AgentManager acquires and injects keys into config.api_keys during create_agent()
+
+    Template Configuration (for LLM_SEARCH agents):
+    - template_config: Dict[str, Any] - Template path and variables
+    - template_vars: Dict[str, Any] - Template variables for Jinja2 rendering
+    - Both are loaded from agents.yaml and can be modified at runtime
     """
     # Identity
     agent_name: str
@@ -37,8 +42,12 @@ class AgentConfig:
     # API Keys Management
     api_keys: Dict[str, str] = field(default_factory=dict)  # All required keys for the agent
 
-    # Request body parameters (from agents.yaml defaults)
+    # Request body parameters (from agents.yaml query_body)
     request_body_params: Dict[str, Any] = field(default_factory=dict)
+
+    # Template configuration (for LLM_SEARCH agents - from agents.yaml template section)
+    template_config: Dict[str, Any] = field(default_factory=dict)  # Template path, name, etc.
+    template_vars: Dict[str, Any] = field(default_factory=dict)    # Template variables for rendering
 
 
 def load_agents_from_yaml(yaml_path: str = "config/agents.yaml") -> Dict[str, AgentConfig]:

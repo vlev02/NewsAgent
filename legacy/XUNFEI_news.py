@@ -92,7 +92,8 @@ def get_structured_news():
             }
         ]
     }
-    
+    print(json.dumps(dict(url=url, json=body, headers=headers, ), ensure_ascii=False, indent=2))
+    return({})
     try:
         response = requests.post(url=url, json=body, headers=headers)
         response.raise_for_status()

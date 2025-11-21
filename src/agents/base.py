@@ -45,7 +45,7 @@ class SearchAgent(ABC):
         Initialize search agent.
 
         Args:
-            config: AgentConfig specifying agent parameters and query_body defaults
+            config: AgentConfig specifying agent parameters, query_body defaults, and template config
         """
         # Extract config values into separate attributes
         self.agent_type = config.agent_type
@@ -57,8 +57,11 @@ class SearchAgent(ABC):
         # Extract query_body defaults from config
         self._request_body_args = {}
         self.request_body_args = config.request_body_params.copy()
-        print(f"{self.request_body = }")
 
+        # Extract template configuration (for LLM_SEARCH agents)
+        self._template_config = config.template_config.copy()
+        self._template_vars = {}
+        self.template_vars = config.template_vars.copy()
 
     @property
     def request_body(self) -> Dict[str, Any]:
@@ -98,6 +101,39 @@ class SearchAgent(ABC):
         self._request_body_args.update(value)
         # Update the request schema with new defaults
         self.request_schema = self._initialize_request_schema()
+
+    @property
+    def template_vars(self) -> Dict[str, Any]:
+        """
+        Get current template variables.
+
+        Returns:
+            Dict with all template variables
+        """
+        return self._template_vars.copy()
+
+    @template_vars.setter
+    def template_vars(self, value: Dict[str, Any]) -> None:
+        """
+        Update template variables.
+
+        Updates _template_vars with new variables.
+        Subclasses can override to implement template re-rendering.
+
+        Args:
+            value: New template variables dict
+        """
+        self._template_vars.update(value)
+
+    @property
+    def template_config(self) -> Dict[str, Any]:
+        """
+        Get template configuration (path, name, etc).
+
+        Returns:
+            Dict with template configuration
+        """
+        return self._template_config.copy()
 
     @abstractmethod
     def _get_request_schema_class(self) -> Type:
@@ -170,7 +206,8 @@ class SearchAgent(ABC):
             "method": "POST",
             "json": self.request_body,  # Only API-relevant fields
             "headers": self.get_header_dict(),  # Authorization header
-            "timeout": 30
+            "timeout": 120,
+            "proxies": {},  # Disable proxy for direct API connection
         }
 
         # Store request metadata for decorator to capture

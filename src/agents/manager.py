@@ -129,17 +129,21 @@ class AgentManager:
         for agent_name, agent_config in data.get('agents', {}).items():
             agent_type = agent_config.get('type', 'REST_API')
 
-            # Get pure agent-specific query_body (only what the API needs)
+            # Separate query_body (API request params) from template config
             agent_query_body = agent_config.get('query_body', {})
+            agent_template_config = agent_config.get('template', {})
+            agent_template_vars = agent_config.get('template_vars', {})
 
-            # Create AgentConfig instance with pure agent parameters only
+            # Create AgentConfig instance with proper separation of concerns
             config = AgentConfig(
                 agent_name=agent_name,
                 agent_type=agent_type,
                 api_endpoint=agent_config.get('endpoint', ''),
                 auth_header_name=agent_config.get('auth_header', base_agent_config.get('auth_header', 'Authorization')),
                 auth_prefix=agent_config.get('auth_prefix', base_agent_config.get('auth_prefix', 'Bearer')),
-                request_body_params=agent_query_body
+                request_body_params=agent_query_body,
+                template_config=agent_template_config,
+                template_vars=agent_template_vars
             )
 
             self._agent_configs[agent_name] = config
