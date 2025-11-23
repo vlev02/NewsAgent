@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Type, Union
 from uuid import uuid4
 
-from src.dataclasses import AgentConfig, QueryRequest, QueryResponse, SearchItem
+from .config import AgentConfig
 from src.utils.simu_request import SimuRequest
 from src.data_manager import AgentDataWrapper
 import requests

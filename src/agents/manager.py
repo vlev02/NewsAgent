@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Type, Optional
 
-from src.dataclasses import AgentConfig
+from .config import AgentConfig
 from src.agents.base import SearchAgent
 
 

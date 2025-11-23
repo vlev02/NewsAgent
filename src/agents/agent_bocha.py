@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Type, Union, Literal
 
 from pydantic import Field
 
-from src.dataclasses import AgentConfig, QueryRequest, QueryResponse, SearchItem
+from .config import AgentConfig
 from src.utils import get_api_time_filter, get_time_description, build_query_string
 from src.decorators import handle_api_request
 from src.debug_config import DebugConfig
