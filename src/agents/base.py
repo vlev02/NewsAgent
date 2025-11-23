@@ -8,9 +8,10 @@ from uuid import uuid4
 
 from src.dataclasses import AgentConfig, QueryRequest, QueryResponse, SearchItem
 from src.utils.simu_request import SimuRequest
+from src.data_manager import AgentDataWrapper
 import requests
 
-class SearchAgent(ABC):
+class SearchAgent(ABC, AgentDataWrapper):
     """
     Abstract base class for all search agents.
 

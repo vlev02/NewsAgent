@@ -467,7 +467,9 @@ class TestSimuRequestDecorator(unittest.TestCase):
 
         result = obj.test_method("test_value")
         self.assertEqual(call_count[0], 1)
-        self.assertEqual(result["result"], "test_value")
+        # Decorator wraps response with response_type
+        self.assertEqual(result["response"]["result"], "test_value")
+        self.assertEqual(result["response_type"], "real_call")
 
     def test_caching_behavior(self):
         """Test caching on/off behavior"""
@@ -491,14 +493,18 @@ class TestSimuRequestDecorator(unittest.TestCase):
 
             # First call - should cache
             result1 = obj.method(42)
-            self.assertEqual(result1["call"], 1)
+            # Decorator wraps response with response_type
+            self.assertEqual(result1["response"]["call"], 1)
+            self.assertEqual(result1["response_type"], "real_call")
 
             # Enable caching mode
             SimuRequest.update_behaviors(simu_call=1, update_response=0, verbose=False)
 
             # Second call - should use cache
             result2 = obj.method(42)
-            self.assertEqual(result2["call"], 1)  # Same as first (from cache)
+            # Should be same cached response
+            self.assertEqual(result2["response"]["call"], 1)  # Same as first (from cache)
+            self.assertEqual(result2["response_type"], "cached_response")  # From cache
             self.assertEqual(call_count[0], 1)  # Still only called once
 
     def test_exception_handling(self):

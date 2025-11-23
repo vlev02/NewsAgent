@@ -372,14 +372,22 @@ class SimuRequest:
                 if log_calls:
                     print(f"  → No cache found, calling real API")
                 response = SimuRequest._call_and_save(func, self, args, kwargs, cache_path, log_calls)
-                return response
+                # Wrap response with response_type metadata
+                return {
+                    "response": response,
+                    "response_type": "real_call"
+                }
 
             # 2. Cache hit with update_response=1: Real call + auto-save (refresh)
             if cache_hit and update_response_enabled:
                 if log_calls:
                     print(f"  → Cache found, update_response=1, refreshing from real API")
                 response = SimuRequest._call_and_save(func, self, args, kwargs, cache_path, log_calls)
-                return response
+                # Wrap response with response_type metadata
+                return {
+                    "response": response,
+                    "response_type": "real_call"
+                }
 
             # 3. Cache hit with simu_call=0: Real call, no save
             if cache_hit and not simu_call_enabled:
@@ -391,16 +399,27 @@ class SimuRequest:
                     if log_calls:
                         print(f"  → API call failed: {e}")
                     raise
-                return response
+                # Wrap response with response_type metadata
+                return {
+                    "response": response,
+                    "response_type": "real_call"
+                }
 
             # 4. Cache hit with simu_call=1: Use simulation (cached response)
             if cache_hit and simu_call_enabled:
                 if log_calls:
                     print(f"  → Using cached response")
-                return cached_response
+                # Wrap response with response_type metadata
+                return {
+                    "response": cached_response,
+                    "response_type": "cached_response"
+                }
 
             # Fallback (should not reach here)
-            return func(self, *args, **kwargs)
+            return {
+                "response": func(self, *args, **kwargs),
+                "response_type": "real_call"
+            }
 
         return wrapper
 
