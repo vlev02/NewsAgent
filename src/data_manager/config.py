@@ -24,7 +24,6 @@ class DataManagerConfig:
     storage: StorageConfig
     models: Dict[str, Dict[str, Any]]
     cascade_request_delete: bool
-    cascade_query_delete: bool
     retention_enabled: bool
     logging_level: str
     log_all_operations: bool
@@ -53,11 +52,6 @@ def create_test_config(db_path: str) -> DataManagerConfig:
             "table": "request_models",
             "description": "Complete raw API request and response log"
         },
-        "query_model": {
-            "name": "query_model",
-            "table": "query_models",
-            "description": "Structured query information"
-        },
         "response_item": {
             "name": "response_item",
             "table": "response_items",
@@ -69,7 +63,6 @@ def create_test_config(db_path: str) -> DataManagerConfig:
         storage=storage,
         models=models,
         cascade_request_delete=True,
-        cascade_query_delete=True,
         retention_enabled=False,
         logging_level="INFO",
         log_all_operations=False
@@ -137,8 +130,7 @@ def load_config(config_path: str = "config/data_manager.yaml") -> DataManagerCon
         raise ValueError("Missing 'cascade' section in config")
 
     cascade = data['cascade']
-    cascade_request = cascade['request_delete_cascade']
-    cascade_query = cascade['query_delete_cascade']
+    cascade_request = cascade.get('request_delete_cascade', True)
 
     # Parse retention config (required)
     if 'retention' not in data:
@@ -159,7 +151,6 @@ def load_config(config_path: str = "config/data_manager.yaml") -> DataManagerCon
         storage=storage,
         models=models,
         cascade_request_delete=cascade_request,
-        cascade_query_delete=cascade_query,
         retention_enabled=retention_enabled,
         logging_level=logging_level,
         log_all_operations=log_ops

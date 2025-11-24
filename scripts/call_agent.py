@@ -18,7 +18,7 @@ if str(project_root) not in sys.path:
 
 from src.agents import get_agent_manager
 from src.utils.simu_request import SimuRequest
-from src.data_manager import get_data_manager, DataModelType, RequestModel, QueryModel
+from src.data_manager import get_data_manager, DataModelType, RequestModel
 
 def print_agents(marketplace):
     print("\nAvailable Agents:")
@@ -79,24 +79,15 @@ def record_to_data_manager(agent, response, execution_time_ms, success=True, err
         request_id = dm.record(DataModelType.REQUEST, request_data)
         print(f"✓ RequestModel recorded: {request_id}")
 
-        # Step 2: Record the parsed query using parse_query()
-        query_data = agent.parse_query(
-            request_id=request_id,
-            max_results=10
-        )
-
         request_model = RequestModel(request_id=request_id, agent_name=agent.NAME)
-        query_id = dm.record(DataModelType.QUERY, query_data, associated_case=request_model)
-        print(f"✓ QueryModel recorded: {query_id}")
 
-        # Step 3: Try to record response items (if agent implements item parsing)
+        # Step 2: Try to record response items (if agent implements item parsing)
         try:
             items = agent.parse_response_items(actual_response if success else {})
             if items:
-                query_model = QueryModel(query_id=query_id, request_id=request_id)
                 item_count = 0
                 for item_data in items:
-                    item_id = dm.record(DataModelType.RESPONSE_ITEM, item_data, associated_case=query_model)
+                    item_id = dm.record(DataModelType.RESPONSE_ITEM, item_data, associated_case=request_model)
                     item_count += 1
                 print(f"✓ Recorded {item_count} ResponseItem(s)")
             else:
@@ -104,17 +95,15 @@ def record_to_data_manager(agent, response, execution_time_ms, success=True, err
         except Exception as e:
             print(f"  (Response item parsing not implemented: {type(e).__name__})")
 
-        # Step 4: Display DataManager statistics
+        # Step 3: Display DataManager statistics
         print("\n" + "-"*70)
         print("DataManager Statistics:")
         print("-"*70)
         request_report = dm.explore(DataModelType.REQUEST)
-        query_report = dm.explore(DataModelType.QUERY)
         item_report = dm.explore(DataModelType.RESPONSE_ITEM)
 
-        print(f"  RequestModels: {request_report['total']} total")
-        print(f"  QueryModels:   {query_report['total']} total")
-        print(f"  ResponseItems: {item_report['total']} total")
+        print(f"  RequestModels:  {request_report['total']} total")
+        print(f"  ResponseItems:  {item_report['total']} total")
         print("-"*70 + "\n")
 
     except Exception as e:

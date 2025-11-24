@@ -7,7 +7,7 @@ A comprehensive script that guides users to explore data items saved and managed
 Features:
 - Browse statistics across all data models
 - View latest items for each model type
-- Explore cascade relationships (REQUEST→QUERY→RESPONSE_ITEM)
+- Explore cascade relationships (REQUEST→RESPONSE_ITEM)
 - Filter by agent name
 - Search by case ID
 - Export results to JSON
@@ -27,8 +27,6 @@ if str(project_root) not in sys.path:
 from src.data_manager import (
     get_data_manager,
     DataModelType,
-    RequestModel,
-    QueryModel,
 )
 
 
@@ -95,7 +93,7 @@ class DataExplorer:
 
         # Get agent statistics
         print(f"\nBreakdown by Model:")
-        for model_type in [DataModelType.REQUEST, DataModelType.QUERY, DataModelType.RESPONSE_ITEM]:
+        for model_type in [DataModelType.REQUEST, DataModelType.RESPONSE_ITEM]:
             report = self.dm.explore(model_type)
             if report['by_agent']:
                 print(f"\n  {model_type.value}:")
@@ -118,11 +116,10 @@ class DataExplorer:
 
         result = self.dm.smart_query({
             'request_model': limit,
-            'query_model': limit,
             'response_item': limit
         })
 
-        for model_name in ['request_model', 'query_model', 'response_item']:
+        for model_name in ['request_model', 'response_item']:
             items = result[model_name]
             self.print_section(f"Latest {len(items)} {model_name} record(s)")
 
@@ -138,17 +135,10 @@ class DataExplorer:
         self.print_section("🔗 Cascade Explorer")
 
         print("\nExplore relationships in the cascade chain:")
-        print("  REQUEST → QUERY → RESPONSE_ITEM")
+        print("  REQUEST → RESPONSE_ITEM")
         print()
 
-        model_choice = input("Start from which model? (request/query, default=request): ").strip().lower() or "request"
-
-        if model_choice == "request":
-            self._cascade_from_request()
-        elif model_choice == "query":
-            self._cascade_from_query()
-        else:
-            print("Invalid choice")
+        self._cascade_from_request()
 
     def _cascade_from_request(self):
         """Cascade explorer starting from REQUEST"""
@@ -169,7 +159,7 @@ class DataExplorer:
             print("No ID provided")
             return
 
-        # Get associated queries
+        # Get associated response items
         result = self.dm.smart_query({'request_model': request_id})
 
         if 'error' in result['request_model']:
@@ -177,61 +167,14 @@ class DataExplorer:
             print(f"\n❌ Error: {error['error']}")
             return
 
-        queries = result['request_model']
-        print(f"\n✓ Found {len(queries)} associated query(ies)")
-
-        if not queries:
-            print("  No queries found for this request")
-            return
-
-        self.print_section(f"REQUEST {request_id[:8]}... → Associated QUERYs")
-
-        for idx, query in enumerate(queries, 1):
-            self._display_item(idx, query, 'query_model')
-
-            # Ask to explore this query
-            explore = input(f"\n  Explore RESPONSE_ITEMs for query {idx}? (y/n): ").strip().lower()
-            if explore == 'y':
-                self._cascade_query_to_items(query['query_id'])
-
-    def _cascade_from_query(self):
-        """Cascade explorer starting from QUERY"""
-        print("\nEnter QUERY ID to explore (or leave empty to view sample queries):")
-
-        # Show sample queries
-        report = self.dm.explore(DataModelType.QUERY)
-        sample_ids = report['sample_keys']
-
-        if sample_ids:
-            print(f"\nSample QUERY IDs (use these to explore):")
-            for idx, qid in enumerate(sample_ids[:5], 1):
-                print(f"  {idx}. {qid}")
-
-        query_id = input("\nEnter QUERY ID: ").strip()
-
-        if not query_id:
-            print("No ID provided")
-            return
-
-        self._cascade_query_to_items(query_id)
-
-    def _cascade_query_to_items(self, query_id: str):
-        """Helper to cascade from QUERY to RESPONSE_ITEMs"""
-        result = self.dm.smart_query({'query_model': query_id})
-
-        if 'error' in result['query_model']:
-            error = result['query_model']
-            print(f"\n❌ Error: {error['error']}")
-            return
-
-        items = result['query_model']
+        items = result['request_model']
         print(f"\n✓ Found {len(items)} associated response item(s)")
 
         if not items:
-            print("  No response items found for this query")
+            print("  No response items found for this request")
             return
 
-        self.print_section(f"QUERY {query_id[:8]}... → Associated RESPONSE_ITEMs")
+        self.print_section(f"REQUEST {request_id[:8]}... → Associated RESPONSE_ITEMs")
 
         for idx, item in enumerate(items, 1):
             self._display_item(idx, item, 'response_item')
@@ -242,7 +185,7 @@ class DataExplorer:
 
         # Get all agents
         all_agents = set()
-        for model_type in [DataModelType.REQUEST, DataModelType.QUERY, DataModelType.RESPONSE_ITEM]:
+        for model_type in [DataModelType.REQUEST, DataModelType.RESPONSE_ITEM]:
             report = self.dm.explore(model_type)
             all_agents.update(report['by_agent'].keys())
 
@@ -267,7 +210,7 @@ class DataExplorer:
         # Show statistics for this agent
         self.print_section(f"📊 Statistics for Agent: {agent_name}")
 
-        for model_type in [DataModelType.REQUEST, DataModelType.QUERY, DataModelType.RESPONSE_ITEM]:
+        for model_type in [DataModelType.REQUEST, DataModelType.RESPONSE_ITEM]:
             report = self.dm.explore(model_type)
             count = report['by_agent'].get(agent_name, 0)
             print(f"  {model_type.value:20} : {count:4} records")
@@ -285,23 +228,18 @@ class DataExplorer:
         found = False
 
         # Try to find in each model
-        for model_type in [DataModelType.REQUEST, DataModelType.QUERY, DataModelType.RESPONSE_ITEM]:
+        for model_type in [DataModelType.REQUEST, DataModelType.RESPONSE_ITEM]:
             result = self.dm.retrieve(model_type, case_id)
             if result:
                 self.print_section(f"Found in {model_type.value}")
                 self._display_full_item(result, model_type.value)
                 found = True
 
-                # If REQUEST or QUERY, show cascade
+                # If REQUEST, show cascade
                 if model_type == DataModelType.REQUEST:
-                    explore = input("\nExplore associated queries? (y/n): ").strip().lower()
-                    if explore == 'y':
-                        self._cascade_from_request_direct(case_id)
-
-                elif model_type == DataModelType.QUERY:
                     explore = input("\nExplore associated response items? (y/n): ").strip().lower()
                     if explore == 'y':
-                        self._cascade_query_to_items(case_id)
+                        self._cascade_from_request_direct(case_id)
 
         if not found:
             print(f"❌ Case ID '{case_id}' not found in any model")
@@ -314,11 +252,11 @@ class DataExplorer:
             print(f"❌ Error: {result['request_model']['error']}")
             return
 
-        queries = result['request_model']
-        print(f"\n✓ Found {len(queries)} associated query(ies)")
+        items = result['request_model']
+        print(f"\n✓ Found {len(items)} associated response item(s)")
 
-        for idx, query in enumerate(queries, 1):
-            self._display_item(idx, query, 'query_model')
+        for idx, item in enumerate(items, 1):
+            self._display_item(idx, item, 'response_item')
 
     def show_clear_data(self):
         """Clear data with options"""
@@ -326,7 +264,7 @@ class DataExplorer:
 
         print("\nWhat would you like to do?")
         clear_options = {
-            "1": "Clear query_models with response_type != 'real_call' (and associated RESPONSE_ITEMs)",
+            "1": "Delete requests with response_type != 'real_call' (and associated RESPONSE_ITEMs)",
             "2": "Remove ALL instances from database (permanent!)",
             "3": "Cancel",
         }
@@ -335,7 +273,7 @@ class DataExplorer:
         choice = input("Select option (1-3): ").strip()
 
         if choice == "1":
-            self._clear_non_real_call_queries()
+            self._clear_non_real_call_requests()
         elif choice == "2":
             self._clear_all_data()
         elif choice == "3":
@@ -343,60 +281,46 @@ class DataExplorer:
         else:
             print("Invalid choice.")
 
-    def _clear_non_real_call_queries(self):
-        """Clear query_models with response_type != 'real_call' and their associated response items"""
-        self.print_section("🗑️ Clearing non-real-call queries...")
+    def _clear_non_real_call_requests(self):
+        """Delete requests with response_type != 'real_call' (and their response items)"""
+        self.print_section("🗑️ Clearing cached-request records...")
 
         try:
-            # Get all query_models
-            report = self.dm.explore(DataModelType.QUERY)
-            sample_keys = report['sample_keys']
+            result = self.dm.smart_query({'request_model': 1000})
+            requests = result.get('request_model', [])
 
-            if not sample_keys:
-                print("No query_models found in database.")
+            if not requests:
+                print("No request records found.")
                 return
 
-            # Get all queries (up to 1000)
-            result = self.dm.smart_query({'query_model': 1000})
-            all_queries = result.get('query_model', [])
+            targets = [
+                req for req in requests
+                if req.get('response_type', 'real_call') != 'real_call'
+            ]
 
-            if not all_queries:
-                print("No query_models found in database.")
+            if not targets:
+                print("No requests found with response_type != 'real_call'")
                 return
 
-            # Filter queries by response_type
-            queries_to_delete = []
-            for query in all_queries:
-                # Get the associated request to check response_type
-                request_id = query.get('request_id')
-                if request_id:
-                    request = self.dm.retrieve(DataModelType.REQUEST, request_id)
-                    if request:
-                        response_type = request.get('response_type', 'real_call')
-                        if response_type != 'real_call':
-                            queries_to_delete.append(query)
-
-            if not queries_to_delete:
-                print("No queries found with response_type != 'real_call'")
-                return
-
-            print(f"\nFound {len(queries_to_delete)} query(ies) with response_type != 'real_call'")
-            print("\nThese queries and their associated response items will be deleted:")
-            for idx, query in enumerate(queries_to_delete[:10], 1):
-                print(f"  {idx}. Query {query['query_id'][:8]}... (agent: {query['agent_name']})")
-            if len(queries_to_delete) > 10:
-                print(f"  ... and {len(queries_to_delete) - 10} more")
+            print(f"\nFound {len(targets)} request(s) with cached responses.")
+            print("These requests and their associated response items will be deleted:")
+            for idx, req in enumerate(targets[:10], 1):
+                print(f"  {idx}. Request {req['request_id'][:8]}... (agent: {req['agent_name']}, type: {req.get('response_type')})")
+            if len(targets) > 10:
+                print(f"  ... and {len(targets) - 10} more")
 
             confirm = input("\nAre you sure? (yes/no): ").strip().lower()
             if confirm != 'yes':
                 print("Operation cancelled.")
                 return
 
-            # Delete the queries using DataManager
-            deleted_count = self.dm.delete_queries_by_response_type('cached_response', cascade=True)
+            deleted = 0
+            for req in targets:
+                if self.dm.delete(DataModelType.REQUEST, req['request_id'], cascade=True):
+                    deleted += 1
 
             print(f"\n✓ Operation completed successfully!")
-            print(f"  Total records deleted: {deleted_count}")
+            print(f"  Requests deleted: {deleted}")
 
         except Exception as e:
             print(f"\n❌ Error: {e}")
@@ -444,30 +368,6 @@ class DataExplorer:
             import traceback
             traceback.print_exc()
 
-    def _enrich_queries_with_response_type(self, queries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Enrich query_models with response_type from associated requests
-
-        Args:
-            queries: List of query_model dictionaries
-
-        Returns:
-            List of query_models with response_type field added
-        """
-        enriched = []
-        for query in queries:
-            query_copy = query.copy()
-            request_id = query.get('request_id')
-            if request_id:
-                request = self.dm.retrieve(DataModelType.REQUEST, request_id)
-                if request:
-                    query_copy['response_type'] = request.get('response_type', 'N/A')
-                else:
-                    query_copy['response_type'] = 'N/A'
-            else:
-                query_copy['response_type'] = 'N/A'
-            enriched.append(query_copy)
-        return enriched
-
     def show_export_data(self):
         """Export data to JSON file"""
         self.print_section("💾 Export Data")
@@ -476,13 +376,12 @@ class DataExplorer:
         export_options = {
             "1": "Statistics summary",
             "2": "All REQUEST records",
-            "3": "All QUERY records (with response_type)",
-            "4": "All RESPONSE_ITEM records",
-            "5": "All data (full export with response_type)",
+            "3": "All RESPONSE_ITEM records",
+            "4": "All data (requests + response items)",
         }
         self.print_menu(export_options)
 
-        choice = input("Select option (1-5): ").strip()
+        choice = input("Select option (1-4): ").strip()
 
         export_data = {}
 
@@ -496,29 +395,17 @@ class DataExplorer:
             filename = "datamanager_requests.json"
 
         elif choice == "3":
-            result = self.dm.smart_query({'query_model': 1000})
-            queries = result['query_model']
-            # Enrich queries with response_type from associated requests
-            enriched_queries = self._enrich_queries_with_response_type(queries)
-            export_data = {"query_model": enriched_queries}
-            filename = "datamanager_queries.json"
-
-        elif choice == "4":
             result = self.dm.smart_query({'response_item': 1000})
             export_data = {"response_item": result['response_item']}
             filename = "datamanager_items.json"
 
-        elif choice == "5":
+        elif choice == "4":
             result = self.dm.smart_query({
                 'request_model': 1000,
-                'query_model': 1000,
                 'response_item': 1000
             })
-            # Enrich queries with response_type from associated requests
-            enriched_queries = self._enrich_queries_with_response_type(result['query_model'])
             export_data = {
                 'request_model': result['request_model'],
-                'query_model': enriched_queries,
                 'response_item': result['response_item']
             }
             filename = "datamanager_full.json"
@@ -548,26 +435,14 @@ class DataExplorer:
                 print(f"      Recorded At: {self.format_timestamp(item['created_at'])}")
             print(f"      Execution: {item['execution_time_ms']}ms")
 
-        elif model_type == 'query_model':
-            print(f"\n  [{idx}] QUERY {item['query_id'][:8]}...")
-            print(f"      Agent: {item['agent_name']}")
-            print(f"      Keywords: {item['query_keywords']}")
-            print(f"      Max results: {item['max_results']}")
-            print(f"      Time: {self.format_timestamp(item['timestamp'])}")
-            # Get associated request to show response_type
-            request_id = item.get('request_id')
-            if request_id:
-                request = self.dm.retrieve(DataModelType.REQUEST, request_id)
-                if request:
-                    response_type = request.get('response_type', 'N/A')
-                    print(f"      Response Type: {response_type}")
-
         elif model_type == 'response_item':
             print(f"\n  [{idx}] ITEM {item['item_id'][:8]}...")
             print(f"      Title: {item['title'][:60]}")
             print(f"      Source: {item['source_name']}")
             print(f"      URL: {item['source_url'][:50]}")
-            if item['relevance_score']:
+            if item.get('request_id'):
+                print(f"      Request: {item['request_id'][:8]}...")
+            if item.get('relevance_score') is not None:
                 print(f"      Relevance: {item['relevance_score']:.2f}")
 
     def _display_full_item(self, item: Dict[str, Any], model_type: str):

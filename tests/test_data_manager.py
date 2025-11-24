@@ -2,7 +2,7 @@
 
 Tests:
 - DataManager singleton
-- Data model persistence (Request, Query, ResponseItem)
+- Data model persistence (Request, ResponseItem)
 - Cascade deletion
 - Agent wrapper integration
 - CASE parsers for different agent types
@@ -10,11 +10,12 @@ Tests:
 Uses temporary databases to isolate tests.
 """
 
+import json
 import sys
-import unittest
 import tempfile
-from pathlib import Path
+import unittest
 from datetime import datetime
+from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -23,7 +24,7 @@ if str(project_root) not in sys.path:
 
 from src.data_manager import (
     get_data_manager, DataManager, DataModelType,
-    RequestModel, QueryModel, ResponseItem, AgentDataWrapper
+    RequestModel, ResponseItem, AgentDataWrapper
 )
 from src.data_manager.config import create_test_config
 import src.data_manager.manager as dm_module
@@ -94,7 +95,6 @@ class TestDataManagerSingleton(DataManagerTestBase):
         models = self.dm.models()
         self.assertEqual(set(models), {
             'request_model',
-            'query_model',
             'response_item'
         })
 
@@ -166,65 +166,11 @@ class TestRequestModelPersistence(DataManagerTestBase):
         self.assertTrue(len(report['sample_keys']) > 0)
 
 
-class TestQueryModelWithCascade(DataManagerTestBase):
-    """Test QueryModel recording with cascade to RequestModel"""
-
-    def test_record_query_with_request(self):
-        """Test recording QueryModel linked to RequestModel"""
-        # Record request
-        request_id = self.dm.record(DataModelType.REQUEST, {
-            'agent_name': 'BOCHA',
-            'url': 'https://api.bochaai.com',
-            'method': 'POST',
-            'headers': {},
-            'body': {'query': 'AI'},
-            'success': True
-        })
-
-        # Record query linked to request
-        request_model = RequestModel(request_id=request_id, agent_name='BOCHA')
-        query_id = self.dm.record(DataModelType.QUERY, {
-            'agent_name': 'BOCHA',
-            'query_keywords': ['artificial intelligence', 'AI'],
-            'query_topics': ['machine learning'],
-            'max_results': 10,
-            'raw_query_body': {'query': 'AI'}
-        }, associated_case=request_model)
-
-        self.assertIsNotNone(query_id)
-
-    def test_retrieve_query(self):
-        """Test retrieving a recorded QueryModel"""
-        # Setup cascade
-        request_id = self.dm.record(DataModelType.REQUEST, {
-            'agent_name': 'XUNFEI',
-            'url': 'https://spark-api.xf-yun.com',
-            'method': 'POST',
-            'headers': {},
-            'body': {},
-            'success': True
-        })
-
-        request_model = RequestModel(request_id=request_id, agent_name='XUNFEI')
-        query_id = self.dm.record(DataModelType.QUERY, {
-            'agent_name': 'XUNFEI',
-            'query_keywords': ['tech news'],
-            'raw_query_body': {}
-        }, associated_case=request_model)
-
-        # Retrieve
-        retrieved = self.dm.retrieve(DataModelType.QUERY, query_id)
-
-        self.assertIsNotNone(retrieved)
-        self.assertEqual(retrieved['request_id'], request_id)
-        self.assertEqual(retrieved['query_keywords'], ['tech news'])
-
-
 class TestResponseItemWithCascade(DataManagerTestBase):
-    """Test ResponseItem recording with cascade to QueryModel"""
+    """Test ResponseItem recording with cascade to RequestModel"""
 
     def test_record_response_items(self):
-        """Test recording multiple ResponseItems linked to QueryModel"""
+        """Test recording multiple ResponseItems linked to RequestModel"""
         # Setup cascade
         request_id = self.dm.record(DataModelType.REQUEST, {
             'agent_name': 'BOCHA',
@@ -236,14 +182,8 @@ class TestResponseItemWithCascade(DataManagerTestBase):
         })
 
         request_model = RequestModel(request_id=request_id, agent_name='BOCHA')
-        query_id = self.dm.record(DataModelType.QUERY, {
-            'agent_name': 'BOCHA',
-            'query_keywords': ['AI'],
-            'raw_query_body': {}
-        }, associated_case=request_model)
 
         # Record response items
-        query_model = QueryModel(query_id=query_id, request_id=request_id)
         item_ids = []
 
         for i in range(3):
@@ -254,7 +194,7 @@ class TestResponseItemWithCascade(DataManagerTestBase):
                 'source_url': f'https://example.com/{i}',
                 'source_name': 'Example',
                 'significance': 'high'
-            }, associated_case=query_model)
+            }, associated_case=request_model)
             item_ids.append(item_id)
 
         self.assertEqual(len(item_ids), 3)
@@ -272,13 +212,6 @@ class TestResponseItemWithCascade(DataManagerTestBase):
         })
 
         request_model = RequestModel(request_id=request_id, agent_name='META')
-        query_id = self.dm.record(DataModelType.QUERY, {
-            'agent_name': 'META',
-            'query_keywords': ['news'],
-            'raw_query_body': {}
-        }, associated_case=request_model)
-
-        query_model = QueryModel(query_id=query_id, request_id=request_id)
         item_id = self.dm.record(DataModelType.RESPONSE_ITEM, {
             'agent_name': 'META',
             'title': 'Breaking News',
@@ -287,14 +220,14 @@ class TestResponseItemWithCascade(DataManagerTestBase):
             'source_name': 'News Site',
             'key_entities': ['Company A', 'CEO'],
             'relevance_score': 0.95
-        }, associated_case=query_model)
+        }, associated_case=request_model)
 
         # Retrieve
         retrieved = self.dm.retrieve(DataModelType.RESPONSE_ITEM, item_id)
 
         self.assertIsNotNone(retrieved)
         self.assertEqual(retrieved['title'], 'Breaking News')
-        self.assertEqual(retrieved['query_id'], query_id)
+        self.assertEqual(retrieved['request_id'], request_id)
         self.assertEqual(retrieved['relevance_score'], 0.95)
 
 
@@ -327,31 +260,6 @@ class TestAgentDataWrapper(DataManagerTestBase):
         self.assertEqual(request_data['method'], 'POST')
         self.assertEqual(request_data['http_status'], 200)
         self.assertEqual(request_data['execution_time_ms'], 1500)
-
-    def test_wrapper_parse_query(self):
-        """Test parse_query method"""
-        class MockAgent(AgentDataWrapper):
-            NAME = "XUNFEI"
-            api_endpoint = "https://spark-api.xf-yun.com"
-            request_body = {"messages": [{"content": "Search for AI"}]}
-
-            def get_header_dict(self):
-                return {"Authorization": "Bearer key"}
-
-        agent = MockAgent()
-
-        # Parse query
-        query_data = agent.parse_query(
-            request_id="req-123",
-            query_keywords=["AI", "machine learning"],
-            max_results=20,
-            language="zh"
-        )
-
-        self.assertEqual(query_data['agent_name'], 'XUNFEI')
-        self.assertEqual(query_data['query_keywords'], ["AI", "machine learning"])
-        self.assertEqual(query_data['max_results'], 20)
-        self.assertEqual(query_data['language'], "zh")
 
     def test_wrapper_parse_response_items(self):
         """Test parse_response_items with custom parser"""
@@ -393,6 +301,92 @@ class TestAgentDataWrapper(DataManagerTestBase):
         self.assertEqual(items[0]['title'], 'AI News 1')
         self.assertEqual(items[1]['source_url'], 'https://ex2.com')
 
+    def test_wrapper_parse_response_items_bocha_dispatch(self):
+        """Ensure BOCHA responses are parsed via agent-specific dispatcher."""
+
+        class MockBochaAgent(AgentDataWrapper):
+            NAME = "BOCHA"
+            api_endpoint = "https://api.bochaai.com"
+            request_body = {}
+
+            def get_header_dict(self):
+                return {}
+
+        agent = MockBochaAgent()
+        raw_response = {
+            "code": 200,
+            "data": {
+                "webPages": {
+                    "value": [
+                        {
+                            "name": "Example Title",
+                            "snippet": "Example summary",
+                            "url": "https://example.com",
+                            "siteName": "ExampleSite",
+                            "datePublished": "2025-11-18T12:03:08+08:00",
+                            "contractedEntities": [{"name": "EntityA"}],
+                        },
+                        {
+                            "name": "Another Result",
+                            "summary": "Another summary",
+                            "url": "https://example.org",
+                            "siteName": "ExampleOrg",
+                        },
+                    ]
+                }
+            },
+        }
+
+        items = agent.parse_response_items(raw_response)
+
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]['source_name'], 'ExampleSite')
+        self.assertIn('EntityA', items[0]['key_entities'])
+
+    def test_wrapper_parse_response_items_xunfei_structured_json(self):
+        """Ensure XUNFEI structured JSON is parsed correctly."""
+
+        class MockXunfeiAgent(AgentDataWrapper):
+            NAME = "XUNFEI"
+            api_endpoint = "https://api.example.com"
+            request_body = {}
+
+            def get_header_dict(self):
+                return {}
+
+        agent = MockXunfeiAgent()
+        structured = {
+            "search_date": "2025-11-21",
+            "summary": "test",
+            "news_items": [
+                {
+                    "title": "Test Title",
+                    "content": "Detailed content",
+                    "source_link": "https://example.com",
+                    "category": "AI",
+                    "key_entities": ["Entity1"],
+                    "significance": "高",
+                    "timestamp": "2025-11-21 12:00",
+                }
+            ],
+        }
+        raw_response = {
+            "response": {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "```json\n" + json.dumps(structured) + "\n```"
+                        }
+                    }
+                ]
+            }
+        }
+
+        items = agent.parse_response_items(raw_response)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['title'], "Test Title")
+        self.assertEqual(items[0]['source_url'], "https://example.com")
+
 
 class TestDataManagerWithWrapper(DataManagerTestBase):
     """Test integration of AgentDataWrapper with DataManager"""
@@ -431,15 +425,9 @@ class TestDataManagerWithWrapper(DataManagerTestBase):
         )
         request_id = self.dm.record(DataModelType.REQUEST, request_data)
 
-        # Step 2: Record query
         request_model = RequestModel(request_id=request_id, agent_name='BOCHA')
-        query_data = agent.parse_query(
-            request_id=request_id,
-            query_keywords=['AI', 'news']
-        )
-        query_id = self.dm.record(DataModelType.QUERY, query_data, associated_case=request_model)
 
-        # Step 3: Record response items
+        # Step 2: Record response items
         raw_response = {
             'webPages': [
                 {'name': 'AI Break', 'snippet': 'Breaking AI news', 'url': 'https://ex.com/1'},
@@ -447,17 +435,15 @@ class TestDataManagerWithWrapper(DataManagerTestBase):
             ]
         }
 
-        query_model = QueryModel(query_id=query_id, request_id=request_id)
         items = agent.parse_response_items(raw_response)
         item_ids = []
 
         for item_data in items:
-            item_id = self.dm.record(DataModelType.RESPONSE_ITEM, item_data, associated_case=query_model)
+            item_id = self.dm.record(DataModelType.RESPONSE_ITEM, item_data, associated_case=request_model)
             item_ids.append(item_id)
 
         # Verify all records
         self.assertIsNotNone(self.dm.retrieve(DataModelType.REQUEST, request_id))
-        self.assertIsNotNone(self.dm.retrieve(DataModelType.QUERY, query_id))
         for item_id in item_ids:
             self.assertIsNotNone(self.dm.retrieve(DataModelType.RESPONSE_ITEM, item_id))
 
@@ -465,19 +451,12 @@ class TestDataManagerWithWrapper(DataManagerTestBase):
 class TestDataManagerAssociationValidation(DataManagerTestBase):
     """Test association validation (required associations)"""
 
-    def test_query_requires_request_association(self):
-        """Test that recording QueryModel without RequestModel raises error"""
-        with self.assertRaises(ValueError) as ctx:
-            self.dm.record(DataModelType.QUERY, {'agent_name': 'BOCHA'})
-
-        self.assertIn('RequestModel', str(ctx.exception))
-
-    def test_response_item_requires_query_association(self):
-        """Test that recording ResponseItem without QueryModel raises error"""
+    def test_response_item_requires_request_association(self):
+        """Test that recording ResponseItem without RequestModel raises error"""
         with self.assertRaises(ValueError) as ctx:
             self.dm.record(DataModelType.RESPONSE_ITEM, {'agent_name': 'BOCHA'})
 
-        self.assertIn('QueryModel', str(ctx.exception))
+        self.assertIn('RequestModel', str(ctx.exception))
 
 
 class TestSmartQuery(DataManagerTestBase):
@@ -491,7 +470,6 @@ class TestSmartQuery(DataManagerTestBase):
         # Verify result is dict with model names as keys
         self.assertIsInstance(initial_result, dict)
         self.assertIn('request_model', initial_result)
-        self.assertIn('query_model', initial_result)
         self.assertIn('response_item', initial_result)
 
         # All values should be integers
@@ -518,28 +496,31 @@ class TestSmartQuery(DataManagerTestBase):
         })
 
         request_model = RequestModel(request_id=request_id, agent_name='BOCHA')
-        query_id = self.dm.record(DataModelType.QUERY, {
+        item_id = self.dm.record(DataModelType.RESPONSE_ITEM, {
             'agent_name': 'BOCHA',
-            'query_keywords': ['test'],
-            'raw_query_body': {}
+            'title': 'Result',
+            'content': 'Body',
+            'source_url': 'https://example.com',
+            'source_name': 'Example'
         }, associated_case=request_model)
 
-        # Query latest 1 request and 1 query using int values
+        # Query latest 1 request and 1 response item using int values
         result = self.dm.smart_query({
             'request_model': 1,
-            'query_model': 1
+            'response_item': 1
         })
 
         self.assertIn('request_model', result)
-        self.assertIn('query_model', result)
+        self.assertIn('response_item', result)
         self.assertEqual(len(result['request_model']), 1)
-        self.assertEqual(len(result['query_model']), 1)
+        self.assertEqual(len(result['response_item']), 1)
         self.assertEqual(result['request_model'][0]['request_id'], request_id)
-        self.assertEqual(result['query_model'][0]['query_id'], query_id)
+        self.assertEqual(result['response_item'][0]['request_id'], request_id)
+        self.assertEqual(result['response_item'][0]['item_id'], item_id)
 
-    def test_smart_query_cascaded_request_to_queries(self):
-        """Use case 3: REQUEST ID dict returns associated QUERYs"""
-        # Setup: Create request with associated queries
+    def test_smart_query_cascaded_request_to_items(self):
+        """Use case 3: REQUEST ID dict returns associated RESPONSE_ITEMs"""
+        # Setup: Create request with associated response items
         request_id = self.dm.record(DataModelType.REQUEST, {
             'agent_name': 'META',
             'url': 'https://metaso.cn/api',
@@ -551,67 +532,25 @@ class TestSmartQuery(DataManagerTestBase):
 
         request_model = RequestModel(request_id=request_id, agent_name='META')
 
-        # Create multiple queries for this request
-        query_ids = []
+        # Create multiple response items for this request
+        item_ids = []
         for i in range(2):
-            qid = self.dm.record(DataModelType.QUERY, {
+            iid = self.dm.record(DataModelType.RESPONSE_ITEM, {
                 'agent_name': 'META',
-                'query_keywords': [f'keyword{i}'],
-                'raw_query_body': {}
+                'title': f'News {i}',
+                'content': f'Body {i}',
+                'source_url': f'https://example.com/{i}',
+                'source_name': 'Example'
             }, associated_case=request_model)
-            query_ids.append(qid)
+            item_ids.append(iid)
 
-        # Query with REQUEST ID dict format should return associated QUERYs
+        # Query with REQUEST ID dict format should return associated RESPONSE_ITEMs
         result = self.dm.smart_query({'request_model': request_id})
 
         self.assertIn('request_model', result)
-        # The result should be a list of queries
-        queries = result['request_model']
-        self.assertEqual(len(queries), 2)
-        returned_query_ids = [q['query_id'] for q in queries]
-        for qid in query_ids:
-            self.assertIn(qid, returned_query_ids)
-
-    def test_smart_query_cascaded_query_to_items(self):
-        """Use case 4: QUERY ID dict returns associated RESPONSE_ITEMs"""
-        # Setup: Create request -> query -> response items
-        request_id = self.dm.record(DataModelType.REQUEST, {
-            'agent_name': 'XUNFEI',
-            'url': 'https://spark-api.xf-yun.com',
-            'method': 'POST',
-            'headers': {},
-            'body': {},
-            'success': True
-        })
-
-        request_model = RequestModel(request_id=request_id, agent_name='XUNFEI')
-        query_id = self.dm.record(DataModelType.QUERY, {
-            'agent_name': 'XUNFEI',
-            'query_keywords': ['search'],
-            'raw_query_body': {}
-        }, associated_case=request_model)
-
-        query_model = QueryModel(query_id=query_id, request_id=request_id)
-
-        # Create multiple response items
-        item_ids = []
-        for i in range(3):
-            iid = self.dm.record(DataModelType.RESPONSE_ITEM, {
-                'agent_name': 'XUNFEI',
-                'title': f'Result {i}',
-                'content': f'Content {i}',
-                'source_url': f'https://example.com/{i}',
-                'source_name': 'Example'
-            }, associated_case=query_model)
-            item_ids.append(iid)
-
-        # Query with QUERY ID dict format should return associated RESPONSE_ITEMs
-        result = self.dm.smart_query({'query_model': query_id})
-
-        self.assertIn('query_model', result)
         # The result should be a list of response items
-        items = result['query_model']
-        self.assertEqual(len(items), 3)
+        items = result['request_model']
+        self.assertEqual(len(items), 2)
         returned_item_ids = [item['item_id'] for item in items]
         for iid in item_ids:
             self.assertIn(iid, returned_item_ids)

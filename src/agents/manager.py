@@ -5,6 +5,8 @@ import importlib
 import os
 from pathlib import Path
 from typing import Dict, Any, Type, Optional
+import copy
+import datetime
 
 from .config import AgentConfig
 from src.agents.base import SearchAgent
@@ -113,6 +115,32 @@ class AgentManager:
         Raises:
             FileNotFoundError: If configuration file not found
         """
+        def gen_agent_config(data, agent_name):
+            reset_vals = {"__DATE__": datetime.date.today().strftime("%Y-%m-%d")}
+            agent_config = data["agents"].get(agent_name, {})
+            if not agent_config:
+                raise ValueError(f"No config found for [{agent_name}] in config file!")
+            agent_type = agent_config.get('agent_type', 'REST_API')
+            type_config = data["agent_types"].get(agent_type, {})
+            base_agent_config = data.get('base_agent', {})
+            
+            def custom_update(dest_dict, ext_dict):
+                for k, v in ext_dict.items():
+                    if isinstance(v, dict):
+                        custom_update(dest_dict.setdefault(k, {}), v)
+                    elif isinstance(v, str) and v in reset_vals:
+                        dest_dict[k] = reset_vals[v]
+                    elif isinstance(v, str) and v.startswith("__"):
+                        dest_dict[k] = dest_dict.pop(v[2:])
+                    else:
+                        dest_dict[k] = v
+                return dest_dict
+            
+            _config = copy.deepcopy(base_agent_config)
+            custom_update(_config, type_config)
+            custom_update(_config, agent_config)
+            return _config
+            
         # Resolve path relative to project root
         project_root = Path(__file__).parent.parent.parent
         config_file = project_root / self.config_path
@@ -127,23 +155,26 @@ class AgentManager:
         base_agent_config = data.get('base_agent', {})
 
         for agent_name, agent_config in data.get('agents', {}).items():
-            agent_type = agent_config.get('type', 'REST_API')
+            config = gen_agent_config(data, agent_name)
+            # agent_type = agent_config.get('agent_type', 'REST_API')
 
-            # Separate query_body (API request params) from template config
-            agent_query_body = agent_config.get('query_body', {})
-            agent_template_config = agent_config.get('template', {})
-            agent_template_vars = agent_config.get('template_vars', {})
+            # # Separate query_body (API request params) from template config
+            # agent_query_body = agent_config.get('request_body_params', {})
+            # agent_template_config = agent_config.get('template_config', {})
+            # agent_template_vars = agent_config.get('template_vars', {})
 
             # Create AgentConfig instance with proper separation of concerns
+            print(config.keys())
             config = AgentConfig(
                 agent_name=agent_name,
-                agent_type=agent_type,
-                api_endpoint=agent_config.get('endpoint', ''),
-                auth_header_name=agent_config.get('auth_header', base_agent_config.get('auth_header', 'Authorization')),
-                auth_prefix=agent_config.get('auth_prefix', base_agent_config.get('auth_prefix', 'Bearer')),
-                request_body_params=agent_query_body,
-                template_config=agent_template_config,
-                template_vars=agent_template_vars
+                **config,
+                # agent_type=agent_type,
+                # api_endpoint=agent_config.get('api_endpoint', ''),
+                # auth_header_name=agent_config.get('auth_header', base_agent_config.get('auth_header', 'Authorization')),
+                # auth_prefix=agent_config.get('auth_prefix', base_agent_config.get('auth_prefix', 'Bearer')),
+                # request_body_params=agent_query_body,
+                # template_config=agent_template_config,
+                # template_vars=agent_template_vars
             )
 
             self._agent_configs[agent_name] = config

@@ -15,20 +15,14 @@ models:
     table: "request_models"
     description: "Complete raw API request and response log"
 
-  - name: "query_model"
-    table: "query_models"
-    description: "Structured query information"
-
   - name: "response_item"
     table: "response_items"
     description: "Single search result item"
 
 # Cascade configuration (delete behavior)
 cascade:
-  # When RequestModel is deleted, cascade delete associated QueryModels and ResponseItems
+  # When RequestModel is deleted, cascade delete associated ResponseItems
   request_delete_cascade: true
-  # When QueryModel is deleted, cascade delete associated ResponseItems
-  query_delete_cascade: true
 
 # Data retention policies
 retention:

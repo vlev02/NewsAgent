@@ -1,0 +1,13 @@
+---
+# List the agents you want the pipeline to execute (names match config/agents.yaml)
+agents:
+  - BOCHA
+  - HUNYUAN
+  - META
+  - QIANFAN
+  - XUNFEI
+
+# Optional pipeline options
+options:
+  output_dir: "data/pipeline_runs"   # Where JSON summaries are stored
+  log_level: "INFO"                  # INFO | DEBUG

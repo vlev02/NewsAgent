@@ -5,20 +5,13 @@ Agents inherit from this to automatically support data persistence.
 
 Parsers (Case-Specific Extractors):
 - parse_request: Extract RequestModel data from agent state
-- parse_query: Extract QueryModel data from agent state
 - parse_response_items: Extract ResponseItem list from API response
-
-Usage:
-    class MyAgent(SearchAgent, AgentDataWrapper):
-        NAME = "MYAGENT"
-
-        # Optional: override parse_* methods for custom parsing
-        def parse_query(self, ...):
-            return super().parse_query(...) + custom_fields
 """
 
-from typing import Dict, Any, List, Optional
+import json
+import re
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 
 class AgentDataWrapper:
@@ -103,63 +96,6 @@ class AgentDataWrapper:
             'error_message': error_message
         }
 
-    def parse_query(
-        self,
-        request_id: str,
-        query_keywords: Optional[List[str]] = None,
-        query_topics: Optional[List[str]] = None,
-        days_back: Optional[int] = None,
-        time_filter: Optional[str] = None,
-        max_results: Optional[int] = None,
-        language: Optional[str] = None,
-        agent_specific_params: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Extract QueryModel data from agent state.
-
-        This parser normalizes common query fields across different agent APIs.
-        Agents can override to extract specific fields from their request_body.
-
-        Args:
-            request_id: Associated RequestModel ID (required)
-            query_keywords: Main search keywords (default: extract from request_body)
-            query_topics: Sub-topics or focus areas
-            days_back: Number of days to search back
-            time_filter: Time filter string (e.g., "oneWeek", "week")
-            max_results: Maximum results requested
-            language: Language code (e.g., "zh", "en")
-            agent_specific_params: Raw agent-specific parameters
-
-        Returns:
-            dict with QueryModel data_value:
-            {
-                'agent_name': str,
-                'query_keywords': List[str],
-                'query_topics': List[str],
-                'days_back': Optional[int],
-                'time_filter': Optional[str],
-                'max_results': Optional[int],
-                'language': Optional[str],
-                'agent_specific_params': Dict,
-                'raw_query_body': Dict
-            }
-        """
-        # Default: try to extract from request_body if not provided
-        if query_keywords is None:
-            query_keywords = self._extract_query_keywords()
-
-        return {
-            'agent_name': self.NAME,
-            'query_keywords': query_keywords or [],
-            'query_topics': query_topics or [],
-            'days_back': days_back,
-            'time_filter': time_filter,
-            'max_results': max_results,
-            'language': language,
-            'agent_specific_params': agent_specific_params or {},
-            'raw_query_body': self.request_body.copy()
-        }
-
     def parse_response_items(
         self,
         raw_response: Dict[str, Any],
@@ -192,22 +128,34 @@ class AgentDataWrapper:
                 'agent_metadata': Dict
             }, ...]
         """
-        items = []
-
         if not raw_response:
-            return items
+            return []
 
-        # Extract items from response based on agent type
+        parser = self._get_agent_specific_response_parser()
+        if parser:
+            parsed = parser(raw_response) or []
+            if item_parser:
+                result = []
+                for item in parsed:
+                    normalized = item_parser(item)
+                    if normalized:
+                        result.append(normalized)
+                return result
+            return [item for item in parsed if item]
+
+        return self._legacy_parse_response_items(raw_response, item_parser)
+
+    def _legacy_parse_response_items(
+        self,
+        raw_response: Dict[str, Any],
+        item_parser: Optional[callable]
+    ) -> List[Dict[str, Any]]:
+        """Fallback path that relies on subclass overrides."""
+        items: List[Dict[str, Any]] = []
         response_items = self._extract_response_items(raw_response)
 
         for item_data in response_items:
-            if item_parser:
-                # Use custom parser if provided
-                parsed = item_parser(item_data)
-            else:
-                # Use agent's default parser
-                parsed = self._parse_response_item(item_data)
-
+            parsed = item_parser(item_data) if item_parser else self._parse_response_item(item_data)
             if parsed:
                 items.append(parsed)
 
@@ -216,24 +164,6 @@ class AgentDataWrapper:
     # =========================================================================
     # Internal Extraction Methods (override in subclasses for custom logic)
     # =========================================================================
-
-    def _extract_query_keywords(self) -> List[str]:
-        """
-        Extract query keywords from request_body.
-
-        Default implementation returns empty list.
-        Override in agent subclass to extract from agent-specific fields.
-
-        Example (BOCHA):
-            if 'query' in self.request_body:
-                return [self.request_body['query']]
-
-        Example (XUNFEI):
-            messages = self.request_body.get('messages', [])
-            if messages and messages[0].get('content'):
-                return [messages[0]['content'][:50]]  # First 50 chars
-        """
-        return []
 
     def _extract_response_items(self, raw_response: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -277,3 +207,294 @@ class AgentDataWrapper:
             }
         """
         return None
+
+    # =========================================================================
+    # Agent-specific dispatchers
+    # =========================================================================
+
+    def _get_agent_specific_response_parser(self):
+        """Return agent-specific parser if implemented."""
+        if not self.NAME:
+            return None
+        method_name = f"_parse_{self.NAME.lower()}_response_items"
+        return getattr(self, method_name, None)
+
+    # -- BOCHA ----------------------------------------------------------------
+    def _parse_bocha_response_items(self, raw_response: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Parse Bocha web search response structure into ResponseItems."""
+        if not isinstance(raw_response, dict):
+            return []
+
+        payload = raw_response
+        if isinstance(payload.get("response"), dict):
+            payload = payload["response"]
+        if isinstance(payload.get("data"), dict):
+            payload = payload["data"]
+
+        entries: List[Dict[str, Any]] = []
+        candidates = [
+            payload.get("webPages"),
+            payload.get("news"),
+            payload.get("videos"),
+            payload.get("value"),
+            payload.get("items"),
+            payload.get("results"),
+        ]
+
+        for section in candidates:
+            if isinstance(section, dict):
+                for key in ("value", "items", "results"):
+                    values = section.get(key)
+                    if isinstance(values, list):
+                        entries.extend([entry for entry in values if isinstance(entry, dict)])
+                        break
+            elif isinstance(section, list):
+                entries.extend([entry for entry in section if isinstance(entry, dict)])
+
+        items: List[Dict[str, Any]] = []
+        for entry in entries:
+            title = entry.get("name") or entry.get("title") or entry.get("summary") or entry.get("snippet") or entry.get("url")
+            content = entry.get("summary") or entry.get("snippet") or entry.get("description") or ""
+            source_url = entry.get("url") or entry.get("sourceUrl") or entry.get("origin_url") or ""
+
+            if not any([title, content, source_url]):
+                continue
+
+            timestamp = entry.get("datePublished") or entry.get("dateLastCrawled")
+            if isinstance(timestamp, str):
+                ts_value = timestamp.replace("Z", "+00:00")
+                try:
+                    timestamp = datetime.fromisoformat(ts_value)
+                except ValueError:
+                    timestamp = None
+            else:
+                timestamp = None
+
+            entities: List[str] = []
+            for key in ("contractedEntities", "entities", "relatedEntities"):
+                value = entry.get(key)
+                if not isinstance(value, list):
+                    continue
+                for item in value:
+                    if isinstance(item, dict):
+                        name = item.get("name") or item.get("text")
+                        if name and name not in entities:
+                            entities.append(name)
+                    elif isinstance(item, str) and item not in entities:
+                        entities.append(item)
+
+            item = {
+                "agent_name": self.NAME,
+                "title": title or "BOCHA Result",
+                "content": content,
+                "source_url": source_url,
+                "source_name": entry.get("siteName") or self.NAME,
+                "category": entry.get("category"),
+                "key_entities": entities,
+                "relevance_score": entry.get("score") or entry.get("rank"),
+                "significance": None,
+                "agent_metadata": entry,
+            }
+            if timestamp:
+                item["timestamp"] = timestamp
+            items.append(item)
+
+        return items
+
+    # -- HUNYUAN --------------------------------------------------------------
+    def _parse_hunyuan_response_items(self, raw_response: Dict[str, Any]) -> List[Dict[str, Any]]:
+        news_items = self._extract_news_items_from_choices(raw_response)
+        normalized: List[Dict[str, Any]] = []
+        for item in news_items:
+            normalized_item = self._normalize_structured_news_item(item, default_source="HUNYUAN")
+            if normalized_item:
+                normalized.append(normalized_item)
+        return normalized
+
+    # -- XUNFEI ---------------------------------------------------------------
+    def _parse_xunfei_response_items(self, raw_response: Dict[str, Any]) -> List[Dict[str, Any]]:
+        news_items = self._extract_news_items_from_choices(raw_response)
+        normalized: List[Dict[str, Any]] = []
+        for item in news_items:
+            normalized_item = self._normalize_structured_news_item(item, default_source="XUNFEI")
+            if normalized_item:
+                normalized.append(normalized_item)
+        return normalized
+
+    # -- META -----------------------------------------------------------------
+    def _parse_meta_response_items(self, raw_response: Dict[str, Any]) -> List[Dict[str, Any]]:
+        payload = self._unwrap_response_payload(raw_response)
+        webpages = payload.get("webpages", [])
+        items: List[Dict[str, Any]] = []
+
+        for page in webpages:
+            if not isinstance(page, dict):
+                continue
+            title = page.get("title") or page.get("name") or page.get("link")
+            content = page.get("content") or page.get("snippet") or ""
+            source_url = page.get("link") or page.get("url") or ""
+            if not any([title, content, source_url]):
+                continue
+            timestamp = self._safe_parse_datetime(page.get("date"))
+
+            item = {
+                "agent_name": self.NAME,
+                "title": title or "META Result",
+                "content": content,
+                "source_url": source_url,
+                "source_name": page.get("website") or "Meta Search",
+                "category": None,
+                "key_entities": [],
+                "relevance_score": page.get("score"),
+                "significance": None,
+                "agent_metadata": page,
+            }
+            if timestamp:
+                item["timestamp"] = timestamp
+            items.append(item)
+        return items
+
+    # -- QIANFAN --------------------------------------------------------------
+    def _parse_qianfan_response_items(self, raw_response: Dict[str, Any]) -> List[Dict[str, Any]]:
+        payload = self._unwrap_response_payload(raw_response)
+        references = payload.get("references", [])
+        items: List[Dict[str, Any]] = []
+
+        for ref in references:
+            if not isinstance(ref, dict):
+                continue
+            title = ref.get("title") or ref.get("website") or "QIANFAN Result"
+            content = ref.get("content") or ""
+            source_url = ref.get("url") or ""
+            if not any([title, content, source_url]):
+                continue
+            timestamp = self._safe_parse_datetime(ref.get("date"))
+
+            item = {
+                "agent_name": self.NAME,
+                "title": title,
+                "content": content,
+                "source_url": source_url,
+                "source_name": ref.get("website") or ref.get("type") or "Qianfan",
+                "category": "web",
+                "key_entities": [],
+                "relevance_score": None,
+                "significance": None,
+                "agent_metadata": ref,
+            }
+            if timestamp:
+                item["timestamp"] = timestamp
+            items.append(item)
+
+        if items:
+            return items
+
+        # Fallback: create single record from assistant message content
+        content = self._extract_first_message_content(raw_response)
+        if content:
+            return [{
+                "agent_name": self.NAME,
+                "title": "Qianfan Report",
+                "content": content,
+                "source_url": "",
+                "source_name": "Qianfan",
+                "category": None,
+                "key_entities": [],
+                "relevance_score": None,
+                "significance": None,
+                "agent_metadata": payload,
+            }]
+        return []
+
+    # =========================================================================
+    # Helpers
+    # =========================================================================
+
+    def _unwrap_response_payload(self, raw_response: Dict[str, Any]) -> Dict[str, Any]:
+        """Return the main payload dict regardless of nesting."""
+        payload = raw_response if isinstance(raw_response, dict) else {}
+        if isinstance(payload.get("response"), dict):
+            payload = payload["response"]
+        return payload if isinstance(payload, dict) else {}
+
+    def _extract_choices(self, raw_response: Dict[str, Any]) -> List[Dict[str, Any]]:
+        payload = self._unwrap_response_payload(raw_response)
+        choices = payload.get("choices")
+        if isinstance(choices, list):
+            return [choice for choice in choices if isinstance(choice, dict)]
+        return []
+
+    def _extract_first_message_content(self, raw_response: Dict[str, Any]) -> Optional[str]:
+        for choice in self._extract_choices(raw_response):
+            message = choice.get("message")
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, str):
+                    stripped = content.strip()
+                    if stripped:
+                        return stripped
+        return None
+
+    def _extract_news_items_from_choices(self, raw_response: Dict[str, Any]) -> List[Dict[str, Any]]:
+        news_items: List[Dict[str, Any]] = []
+        for choice in self._extract_choices(raw_response):
+            message = choice.get("message")
+            if not isinstance(message, dict):
+                continue
+            content = message.get("content")
+            data = self._extract_json_from_content(content)
+            if data and isinstance(data.get("news_items"), list):
+                for item in data["news_items"]:
+                    if isinstance(item, dict):
+                        news_items.append(item)
+        return news_items
+
+    def _extract_json_from_content(self, content: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not isinstance(content, str):
+            return None
+        text = content.strip()
+        match = re.search(r"```json\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
+        block = match.group(1) if match else text
+        try:
+            return json.loads(block)
+        except json.JSONDecodeError:
+            return None
+
+    def _normalize_structured_news_item(self, entry: Dict[str, Any], default_source: str) -> Dict[str, Any]:
+        title = entry.get("title") or entry.get("summary") or entry.get("content")
+        content = entry.get("content") or entry.get("summary") or ""
+        source_url = entry.get("source_link") or entry.get("source_url") or ""
+        if not any([title, content, source_url]):
+            return {}
+        timestamp = self._safe_parse_datetime(entry.get("timestamp"))
+
+        item = {
+            "agent_name": self.NAME,
+            "title": title or f"{default_source} Result",
+            "content": content,
+            "source_url": source_url,
+            "source_name": entry.get("source_type") or default_source,
+            "category": entry.get("category"),
+            "key_entities": entry.get("key_entities") or [],
+            "relevance_score": None,
+            "significance": entry.get("significance"),
+            "agent_metadata": entry,
+        }
+        if timestamp:
+            item["timestamp"] = timestamp
+        return item
+
+    def _safe_parse_datetime(self, value: Optional[str]) -> Optional[datetime]:
+        if not value or not isinstance(value, str):
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        cleaned = cleaned.replace("Z", "+00:00")
+        # Handle date-only by appending time
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", cleaned):
+            cleaned = f"{cleaned}T00:00:00"
+        try:
+            return datetime.fromisoformat(cleaned)
+        except ValueError:
+            return None

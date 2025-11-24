@@ -1,12 +1,12 @@
 """Data Manager module
 
-Provides a unified interface for managing request logs, query records, and response items.
+Provides a unified interface for managing request logs and response items.
 Decoupled from agent manager - can be used independently.
 
 Public API:
 - get_data_manager(): Get the global singleton DataManager instance
 - DataModelType: Enum of available data models
-- Models: RequestModel, QueryModel, ResponseItem
+- Models: RequestModel, ResponseItem
 - AgentDataWrapper: Mixin for agents to integrate with DataManager
 
 Usage:
@@ -14,8 +14,7 @@ Usage:
 
     # In agent class
     class MyAgent(SearchAgent, AgentDataWrapper):
-        def parse_query(self, request_id):
-            return super().parse_query(request_id, query_keywords=['AI'])
+        ...
 
     # In application code
     dm = get_data_manager()
@@ -25,14 +24,13 @@ Usage:
     request_id = dm.record(DataModelType.REQUEST, request_dict)
 """
 
-from .models import RequestModel, QueryModel, ResponseItem, DataModelType
+from .models import RequestModel, ResponseItem, DataModelType
 from .manager import DataManager, get_data_manager
 from .agent_wrapper import AgentDataWrapper
 from .config import create_test_config
 
 __all__ = [
     "RequestModel",
-    "QueryModel",
     "ResponseItem",
     "DataModelType",
     "DataManager",

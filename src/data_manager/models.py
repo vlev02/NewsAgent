@@ -1,9 +1,8 @@
 """Data model definitions for data manager
 
-Three core models with cascade relationships:
+Two core models with cascade relationships:
 - RequestModel: Complete raw API request and response log
-- QueryModel: Structured query info (associated with RequestModel)
-- ResponseItem: Single search result (associated with QueryModel)
+- ResponseItem: Single search result (directly associated with RequestModel)
 """
 
 from dataclasses import dataclass, field
@@ -16,7 +15,6 @@ from enum import Enum
 class DataModelType(Enum):
     """Available data models"""
     REQUEST = "request_model"
-    QUERY = "query_model"
     RESPONSE_ITEM = "response_item"
 
 
@@ -58,58 +56,17 @@ class RequestModel:
 
 
 @dataclass
-class QueryModel:
-    """
-    Structured query information extracted from a request.
-
-    Parses and normalizes query parameters across different agent APIs.
-    Associated with exactly one RequestModel (cascade delete).
-    """
-    # Identification
-    query_id: str = field(default_factory=lambda: str(uuid4()))
-    request_id: str = ""  # FK to RequestModel (cascade)
-    agent_name: str = ""
-    timestamp: datetime = field(default_factory=datetime.now)
-
-    # Parsed common query fields (extracted from all agent schemas)
-    # Agents implement their own data_value structure to fit this model
-    query_keywords: List[str] = field(default_factory=list)  # Main search terms
-    query_topics: List[str] = field(default_factory=list)    # Sub-topics or focus areas
-
-    # Time filtering (normalized across all APIs)
-    days_back: Optional[int] = None
-    time_filter: Optional[str] = None  # e.g., "oneWeek", "week", etc.
-
-    # Result limiting
-    max_results: Optional[int] = None
-    language: Optional[str] = None
-
-    # Agent-specific parameters (raw, as-is)
-    agent_specific_params: Dict[str, Any] = field(default_factory=dict)
-
-    # Original raw query body (for reference/debugging)
-    raw_query_body: Dict[str, Any] = field(default_factory=dict)
-
-    # Internal tracking
-    created_at: datetime = field(default_factory=datetime.now)
-
-    def __hash__(self):
-        """Allow use as dict key"""
-        return hash(self.query_id)
-
-
-@dataclass
 class ResponseItem:
     """
     Single search result item parsed from agent's response.
 
     Represents one normalized search result from an agent.
     Multiple ResponseItems are created from a single agent response.
-    Associated with exactly one QueryModel (cascade delete).
+    Associated directly with a RequestModel (cascade delete).
     """
     # Identification
     item_id: str = field(default_factory=lambda: str(uuid4()))
-    query_id: str = ""  # FK to QueryModel (cascade)
+    request_id: str = ""  # FK to RequestModel (cascade)
     agent_name: str = ""
     timestamp: datetime = field(default_factory=datetime.now)
 

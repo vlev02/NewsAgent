@@ -2,14 +2,14 @@
 
 ## Overview
 
-Independent data management system decoupled from agents and agent_manager. Handles logging of API requests, structured queries, and search results with automatic cascade deletion.
+Independent data management system decoupled from agents and agent_manager. Handles logging of API requests and normalized search results with automatic cascade deletion.
 
 ## Module Structure
 
 ```
 src/data_manager/
 ├── __init__.py           # Public API exports
-├── models.py             # 3 dataclass models
+├── models.py             # 2 dataclass models
 ├── config.py             # YAML configuration loader
 ├── manager.py            # DataManager singleton
 └── storage.py            # SQLite backend implementation
@@ -46,38 +46,14 @@ class RequestModel:
     error_message: Optional[str]
 ```
 
-### 2. QueryModel
-Structured query information (cascade to RequestModel).
-
-```python
-@dataclass
-class QueryModel:
-    query_id: str                    # UUID
-    request_id: str                  # FK to RequestModel
-    agent_name: str
-    timestamp: datetime
-
-    # Parsed common fields (normalized across all agents)
-    query_keywords: List[str]
-    query_topics: List[str]
-    days_back: Optional[int]
-    time_filter: Optional[str]
-    max_results: Optional[int]
-    language: Optional[str]
-
-    # Agent-specific params (raw)
-    agent_specific_params: Dict[str, Any]
-    raw_query_body: Dict[str, Any]
-```
-
-### 3. ResponseItem
-Single search result (cascade to QueryModel).
+### 2. ResponseItem
+Single search result (cascade to RequestModel).
 
 ```python
 @dataclass
 class ResponseItem:
     item_id: str                     # UUID
-    query_id: str                    # FK to QueryModel
+    request_id: str                  # FK to RequestModel
     agent_name: str
     timestamp: datetime
 
@@ -107,7 +83,7 @@ dm = get_data_manager()  # Always returns same instance
 ### List Models
 ```python
 models = dm.models()
-# Returns: ['request_model', 'query_model', 'response_item']
+# Returns: ['request_model', 'response_item']
 ```
 
 ### Explore Model (Statistics + Sample Keys)
@@ -141,19 +117,11 @@ request_id = dm.record(DataModelType.REQUEST, {
     'success': True
 })
 
-# Record query (linked to request)
+# Record response items (linked to request)
 request_model = RequestModel(request_id=request_id, agent_name='BOCHA')
-query_id = dm.record(DataModelType.QUERY, {
-    'agent_name': 'BOCHA',
-    'query_keywords': ['AI'],
-    'max_results': 10
-}, associated_case=request_model)
-
-# Record response items (linked to query)
-query_model = QueryModel(query_id=query_id, request_id=request_id)
 for item_data in items:
     item_id = dm.record(DataModelType.RESPONSE_ITEM,
-        item_data, associated_case=query_model)
+        item_data, associated_case=request_model)
 ```
 
 ## Configuration
@@ -174,16 +142,12 @@ models:
   - name: "request_model"
     table: "request_models"
     description: "..."
-  - name: "query_model"
-    table: "query_models"
-    description: "..."
   - name: "response_item"
     table: "response_items"
     description: "..."
 
 cascade:
   request_delete_cascade: true
-  query_delete_cascade: true
 
 retention:
   enabled: false
@@ -197,13 +161,12 @@ logging:
 
 ### SQLite Backend
 - **Database**: `data/data_manager.db`
-- **Tables**: `request_models`, `query_models`, `response_items`
+- **Tables**: `request_models`, `response_items`
 - **Serialization**: JSON for all complex fields
-- **Indices**: agent_name, request_id, query_id
+- **Indices**: agent_name, request_id
 
 ### Cascade Deletion
-- Delete RequestModel → auto-deletes all QueryModels + ResponseItems
-- Delete QueryModel → auto-deletes all ResponseItems
+- Delete RequestModel → auto-deletes associated ResponseItems
 - Configurable in `config/data_manager.yaml`
 
 ## Design Principles
@@ -240,13 +203,7 @@ def get_request_data_value(self) -> Dict[str, Any]:
         'success': True,       # Set after API call
     }
 
-def get_query_data_value(self) -> Dict[str, Any]:
-    # Extract common fields from self.request_body
-    return {
-        'agent_name': self.NAME,
-        'query_keywords': [...],  # Parsed from request_body
-        'raw_query_body': self.request_body
-    }
+# Response parsing handled via AgentDataWrapper.parse_response_items()
 ```
 
 Future scheduler module will orchestrate DataManager + AgentManager together.

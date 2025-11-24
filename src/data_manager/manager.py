@@ -4,8 +4,7 @@ Manages all data model operations with a unified public API.
 """
 
 from typing import Dict, Any, Optional, Union, Type
-from dataclasses import asdict
-from .models import RequestModel, QueryModel, ResponseItem, DataModelType
+from .models import RequestModel, ResponseItem, DataModelType
 from .config import load_config, DataManagerConfig
 from .storage import SQLiteBackend
 
@@ -84,7 +83,7 @@ class DataManager:
         self,
         model_type: Union[str, DataModelType],
         data_value: Dict[str, Any],
-        associated_case: Optional[Union[RequestModel, QueryModel]] = None
+        associated_case: Optional[RequestModel] = None
     ) -> str:
         """
         Record a data model instance.
@@ -92,7 +91,7 @@ class DataManager:
         Args:
             model_type: Type of model (str or DataModelType enum)
             data_value: Python dict with model data (original python objects)
-            associated_case: Optional associated model instance (RequestModel or QueryModel)
+            associated_case: Optional associated RequestModel instance
 
         Returns:
             ID of the created record
@@ -110,17 +109,10 @@ class DataManager:
         if model_name == DataModelType.REQUEST.value:
             return self._record_request(data_value)
 
-        elif model_name == DataModelType.QUERY.value:
+        elif model_name == DataModelType.RESPONSE_ITEM.value:
             if not associated_case or not isinstance(associated_case, RequestModel):
                 raise ValueError(
-                    f"QueryModel requires associated_case to be RequestModel instance"
-                )
-            return self._record_query(data_value, associated_case)
-
-        elif model_name == DataModelType.RESPONSE_ITEM.value:
-            if not associated_case or not isinstance(associated_case, QueryModel):
-                raise ValueError(
-                    f"ResponseItem requires associated_case to be QueryModel instance"
+                    f"ResponseItem requires associated_case to be RequestModel instance"
                 )
             return self._record_response_item(data_value, associated_case)
 
@@ -153,9 +145,6 @@ class DataManager:
 
         if model_name == DataModelType.REQUEST.value:
             return self.storage.get_request(case_key)
-
-        elif model_name == DataModelType.QUERY.value:
-            return self.storage.get_query(case_key)
 
         elif model_name == DataModelType.RESPONSE_ITEM.value:
             return self.storage.get_response_item(case_key)
@@ -191,8 +180,6 @@ class DataManager:
         # Get sample keys
         if model_name == DataModelType.REQUEST.value:
             sample_keys = self.storage.list_requests(limit=5)
-        elif model_name == DataModelType.QUERY.value:
-            sample_keys = self.storage.list_queries(limit=5)
         elif model_name == DataModelType.RESPONSE_ITEM.value:
             sample_keys = self.storage.list_response_items(limit=5)
         else:
@@ -242,8 +229,6 @@ class DataManager:
 
         if model_name == DataModelType.REQUEST.value:
             return self.storage.delete_request(case_key, cascade=cascade)
-        elif model_name == DataModelType.QUERY.value:
-            return self.storage.delete_query(case_key, cascade=cascade)
         elif model_name == DataModelType.RESPONSE_ITEM.value:
             return 1 if self.storage.delete_response_item(case_key) else 0
         else:
@@ -258,19 +243,6 @@ class DataManager:
         """
         return self.storage.delete_all()
 
-    def delete_queries_by_response_type(self, response_type: str, cascade: bool = True) -> int:
-        """
-        Delete queries whose associated requests have a specific response_type.
-
-        Args:
-            response_type: Response type to filter by (e.g., 'cached_response')
-            cascade: If True, delete associated response items
-
-        Returns:
-            Total number of records deleted
-        """
-        return self.storage.delete_queries_by_response_type(response_type, cascade=cascade)
-
     def smart_query(self, query_arg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Smart query method with multiple use cases.
@@ -280,8 +252,7 @@ class DataManager:
                 - None/empty: Return statistics {model1: count1, model2: count2}
                 - Dict like {'request_model': 5}: Return latest 5 cases for each model
                 - Dict like {'request_model': 'uuid-string'}: Return cascaded related instances
-                  - REQUEST ID → returns associated QUERYs
-                  - QUERY ID → returns associated RESPONSE_ITEMs
+                  - REQUEST ID → returns associated RESPONSE_ITEMs
 
         Returns:
             Dictionary with results based on query_arg:
@@ -337,11 +308,6 @@ class DataManager:
                     cases = [self.retrieve(DataModelType.REQUEST, cid) for cid in case_ids]
                     results[model_name] = cases
 
-                elif model_name == DataModelType.QUERY.value:
-                    case_ids = self.storage.list_queries(limit=value)
-                    cases = [self.retrieve(DataModelType.QUERY, cid) for cid in case_ids]
-                    results[model_name] = cases
-
                 elif model_name == DataModelType.RESPONSE_ITEM.value:
                     case_ids = self.storage.list_response_items(limit=value)
                     cases = [self.retrieve(DataModelType.RESPONSE_ITEM, cid) for cid in case_ids]
@@ -352,29 +318,16 @@ class DataManager:
                 case_id = value
 
                 if model_name == DataModelType.REQUEST.value:
-                    # REQUEST ID → return associated QUERYs
+                    # REQUEST ID → return associated RESPONSE_ITEMs
                     request_case = self.retrieve(DataModelType.REQUEST, case_id)
                     if request_case:
-                        query_ids = self.storage.list_queries(request_id=case_id)
-                        queries = [self.retrieve(DataModelType.QUERY, qid) for qid in query_ids]
-                        results[model_name] = queries
-                    else:
-                        results[model_name] = {
-                            "error": f"REQUEST ID '{case_id}' not found",
-                            "searched_model": DataModelType.REQUEST.value
-                        }
-
-                elif model_name == DataModelType.QUERY.value:
-                    # QUERY ID → return associated RESPONSE_ITEMs
-                    query_case = self.retrieve(DataModelType.QUERY, case_id)
-                    if query_case:
-                        item_ids = self.storage.list_response_items(query_id=case_id)
+                        item_ids = self.storage.list_response_items(request_id=case_id)
                         items = [self.retrieve(DataModelType.RESPONSE_ITEM, iid) for iid in item_ids]
                         results[model_name] = items
                     else:
                         results[model_name] = {
-                            "error": f"QUERY ID '{case_id}' not found",
-                            "searched_model": DataModelType.QUERY.value
+                            "error": f"REQUEST ID '{case_id}' not found",
+                            "searched_model": DataModelType.REQUEST.value
                         }
 
                 elif model_name == DataModelType.RESPONSE_ITEM.value:
@@ -425,40 +378,10 @@ class DataManager:
         # Store and return ID
         return self.storage.insert_request(request)
 
-    def _record_query(self, data_value: Dict[str, Any], request: RequestModel) -> str:
-        """Create and store QueryModel"""
-        # Build kwargs, excluding keys that should use dataclass defaults
-        kwargs = {'request_id': request.request_id}  # Always set the FK
-
-        # Only add keys that are explicitly provided (not None)
-        for key in ['query_id', 'agent_name', 'timestamp', 'query_keywords',
-                    'query_topics', 'days_back', 'time_filter', 'max_results',
-                    'language', 'agent_specific_params', 'raw_query_body', 'created_at']:
-            if key in data_value:
-                value = data_value[key]
-                # For optional fields, only add if not None
-                if key in ['timestamp', 'days_back', 'time_filter', 'max_results',
-                          'language', 'created_at']:
-                    if value is not None:
-                        kwargs[key] = value
-                # For query_id, only add if not empty string
-                elif key == 'query_id':
-                    if value and value != '':
-                        kwargs[key] = value
-                # For other fields, always add if key is present
-                else:
-                    kwargs[key] = value
-
-        # Create model instance - defaults will be used for missing keys
-        query = QueryModel(**kwargs)
-
-        # Store and return ID
-        return self.storage.insert_query(query)
-
-    def _record_response_item(self, data_value: Dict[str, Any], query: QueryModel) -> str:
+    def _record_response_item(self, data_value: Dict[str, Any], request: RequestModel) -> str:
         """Create and store ResponseItem"""
         # Build kwargs, excluding keys that should use dataclass defaults
-        kwargs = {'query_id': query.query_id}  # Always set the FK
+        kwargs = {'request_id': request.request_id}  # Always set the FK
 
         # Only add keys that are explicitly provided (not None)
         for key in ['item_id', 'agent_name', 'timestamp', 'title', 'content',

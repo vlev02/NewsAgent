@@ -7,8 +7,6 @@ from typing import Any, Dict, List, Optional, Type, Union, Literal
 from pydantic import Field
 
 from .config import AgentConfig
-from src.utils import get_api_time_filter, get_time_description, build_query_string
-from src.decorators import handle_api_request
 from src.debug_config import DebugConfig
 from .base import SearchAgent
 from .request_schema import RequestSchema
@@ -43,7 +41,7 @@ class MetaRequestSchema(RequestSchema):
     size: int = Field(
         ge=1,
         le=100,
-        default=10,
+        default=12,
         description="Number of results to return (1-100)"
     )
 

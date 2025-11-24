@@ -6,7 +6,7 @@
 # BASE_AGENT: Base configuration for all agents
 # ==============================================================================
 base_agent:
-  auth_header: "Authorization"
+  auth_header_name: "Authorization"
   auth_prefix: "Bearer"
 
 # ==============================================================================
@@ -15,18 +15,44 @@ base_agent:
 agent_types:
   LLM_SEARCH:
     # LLM-based agents: XUNFEI, HUNYUAN, QIANFAN
-    temperature: 0.3
+    request_body_params:
+      temperature: 0.3
+
+    template_vars:
+      query_fields:
+        - "自动驾驶"
+        - "具身智能"
+        - "大模型"
+        - "人工智能"
+      query_topics:
+        - "特斯拉FSD"
+        - "人形机器人"
+        - "AI大模型突破"
+        - "行业重要动态"
+      language: "中文"
+      current_date: "__DATE__"
+      time_description: "最近一天"
+      enable_categorization: true
+      resource_types:
+        - "网页"
+        - "图片"
+      enable_reasoning: true
+
     # Note: model and other LLM-specific params defined per agent
 
   REST_API:
     # REST API agents: BOCHA, META
     # Default query string for search
-    query: "人工智能"
+    request_body_params:
+      query: "人工智能 自动驾驶 具身智能 特斯拉FSD 人形机器人 AI大模型突破"
+      count: 12
+      summary: true
 
   SOCIAL_MEDIA:
     # Social media agents: TWITTER
-    sort_order: "recency"
-    max_results: 10
+    request_body_params:
+      sort_order: "recency"
+      max_results: 30
 
 # ==============================================================================
 # AGENTS: Agent-specific overrides only
@@ -37,37 +63,26 @@ agents:
   # ─────────────────────────────────────────────────────────────────────────
 
   XUNFEI:
-    type: "LLM_SEARCH"
-    endpoint: "https://spark-api-open.xf-yun.com/v1/chat/completions"
-    auth_header: "Authorization"  # Standard Bearer token
+    agent_type: "LLM_SEARCH"
+    api_endpoint: "https://spark-api-open.xf-yun.com/v1/chat/completions"
+    auth_header_name: "Authorization"  # Standard Bearer token
 
     # Template configuration (separate from query_body)
     # Specifies where and how to load Jinja2 templates
-    template:
+    template_config:
       path: "src/templates/xunfei_prompt.jinja2"  # Can be relative or absolute
       name: "xunfei_prompt"                        # For reference/identification
 
     # Template variables for Jinja2 prompt rendering
     # These variables are used to render the Jinja2 template
     # Can be modified at runtime via agent.template_vars setter
-    template_vars:
-      query_fields:
-        - "自动驾驶"
-        - "具身智能"
-        - "大模型"
-        - "人工智能"
-      query_topics:
-        - "特斯拉FSD"
-        - "人形机器人"
-        - "AI大模型突破"
-        - "行业重要动态"
-      current_date: "2025-11-21"
-      language: "中文"
+    # template_vars:
+    #   current_date: "2025-11-24"
 
     # API request body configuration (separate from template)
     # These are the actual parameters sent to the Xunfei API
     # Can be modified at runtime via agent.request_body_args setter
-    query_body:
+    request_body_params:
       model: "4.0Ultra"
       user: "tech_news_agent"
       stream: false
@@ -76,39 +91,28 @@ agents:
       search_mode: "deep"
 
   HUNYUAN:
-    type: "LLM_SEARCH"
-    endpoint: "https://api.hunyuan.cloud.tencent.com/v1/chat/completions"
-    auth_header: "Authorization"  # Standard Bearer token
+    agent_type: "LLM_SEARCH"
+    api_endpoint: "https://api.hunyuan.cloud.tencent.com/v1/chat/completions"
+    auth_header_name: "Authorization"  # Standard Bearer token
 
     # Template configuration (separate from query_body)
     # Specifies where and how to load Jinja2 templates
-    template:
+    template_config:
       path: "src/templates/hunyuan_prompt.jinja2"  # Can be relative or absolute
       name: "hunyuan_prompt"                        # For reference/identification
 
     # Template variables for Jinja2 prompt rendering
     # These variables are used to render the Jinja2 template
     # Can be modified at runtime via agent.template_vars setter
-    template_vars:
-      query_fields:
-        - "自动驾驶"
-        - "具身智能"
-        - "大模型"
-        - "人工智能"
-      query_topics:
-        - "特斯拉FSD"
-        - "人形机器人"
-        - "AI大模型突破"
-        - "行业重要动态"
-      time_description: "最近一周"
-      current_date: "2025-11-21"
-      language: "中文"
-      enable_categorization: true
+
+    # template_vars:
+    #   time_description: "最近一周"
+    #   enable_categorization: true
 
     # API request body configuration (separate from template)
     # These are the actual parameters sent to the Hunyuan API
     # Can be modified at runtime via agent.request_body_args setter
-    query_body:
+    request_body_params:
       model: "hunyuan-turbo"
       stream: false
       temperature: 0.3
@@ -116,42 +120,32 @@ agents:
       search_info: true
 
   QIANFAN:
-    type: "LLM_SEARCH"
-    endpoint: "https://qianfan.baidubce.com/v2/ai_search/chat/completions"
-    auth_header: "X-Appbuilder-Authorization"  # Override default
+    agent_type: "LLM_SEARCH"
+    api_endpoint: "https://qianfan.baidubce.com/v2/ai_search/chat/completions"
+    auth_header_name: "X-Appbuilder-Authorization"  # Override default
 
     # Template configuration (separate from query_body)
     # Specifies where and how to load Jinja2 templates
-    template:
+    template_config:
       path: "src/templates/qianfan_prompt.jinja2"  # Can be relative or absolute
       name: "qianfan_prompt"                       # For reference/identification
 
     # Template variables for Jinja2 prompt rendering
     # These variables are used to render the Jinja2 template
     # Can be modified at runtime via agent.template_vars setter
-    template_vars:
-      query_fields:
-        - "自动驾驶"
-        - "具身智能"
-        - "大模型"
-        - "人工智能"
-      query_topics:
-        - "特斯拉FSD"
-        - "人形机器人"
-        - "AI大模型突破"
-        - "行业重要动态"
-      time_description: "最近一周"
-      resource_types:
-        - "网页"
-        - "图片"
-        - "视频"
-      language: "中文"
-      enable_reasoning: true
+
+    # template_vars:
+    #   time_description: "最近一周"
+    #   resource_types:
+    #     - "网页"
+    #     - "图片"
+    #     - "视频"
+    #   enable_reasoning: true
 
     # API request body configuration (separate from template)
     # These are the actual parameters sent to the Qianfan API
     # Can be modified at runtime via agent.request_body_args setter
-    query_body:
+    request_body_params:
       model: "deepseek-r1"
       stream: false
       temperature: "1e-10"
@@ -178,22 +172,22 @@ agents:
   # ─────────────────────────────────────────────────────────────────────────
 
   BOCHA:
-    type: "REST_API"
-    endpoint: "https://api.bochaai.com/v1/web-search"
-    query_body:
-      query: "人工智能"
-      freshness: "oneWeek"
-      count: 10
-      summary: true
+    agent_type: "REST_API"
+    api_endpoint: "https://api.bochaai.com/v1/web-search"
+    request_body_params:
+      # query: "人工智能"
+      freshness: "oneDay"
+      # count: 10
+      # summary: true
 
   META:
-    type: "REST_API"
-    endpoint: "https://metaso.cn/api/v1/search"
-    query_body:
-      q: "人工智能"
+    agent_type: "REST_API"
+    api_endpoint: "https://metaso.cn/api/v1/search"
+    request_body_params:
+      q: "__query"
       scope: "webpage"
-      size: "10"
-      includeSummary: false
+      size: "__count"
+      includeSummary: "__summary"
       includeRawContent: true
       conciseSnippet: true
 
@@ -201,8 +195,8 @@ agents:
   # ─────────────────────────────────────────────────────────────────────────
 
   TWITTER:
-    type: "SOCIAL_MEDIA"
-    endpoint: "https://api.twitter.com/2"
-    query_body:
+    agent_type: "SOCIAL_MEDIA"
+    api_endpoint: "https://api.twitter.com/2"
+    request_body_params:
       sort_order: "recency"
       max_results: 10

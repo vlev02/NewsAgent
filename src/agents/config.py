@@ -3,9 +3,6 @@
 This module centralizes agent configuration structures within the agents
 package so AgentManager and agent implementations can share a single source
 of truth.
-
-Legacy consumers that import AgentConfig from src.dataclasses continue to
-work via a compatibility shim in src/dataclasses/config.py.
 """
 
 from dataclasses import dataclass, field
