@@ -1,0 +1,75 @@
+# LLM 研究追踪关键词库
+#
+# 更新原则：
+# - 发现新术语（尤其是论文自造词，比如 ReClaim 自己的 "positional coherence" /
+#   "position budget" / "co-attended survivors"）就加进对应 tier。
+# - 连续 2 周没有产出相关信号的词，考虑降级到 tier_3 或直接删除。
+# - 每次改动就是一次 commit，不要偷懒直接改不留痕迹——这个文件的 git history 本身就是
+#   "关注点演化记录"。
+#
+# 最后更新：2026-07-14
+
+tier_0_core: # 每次必搜，命中就是"今天必须看"
+  - KV cache compression
+  - KV cache eviction
+  - KV cache reuse
+  - prefix caching LLM
+  - position re-indexing KV cache
+  - RoPE re-rotation cache
+  - semantic chunk eviction
+  - attention sink
+  - StreamingLLM
+  - token pruning attention
+  - token merging ViT LLM
+
+tier_1_systems_serving: # 系统 / serving 层
+  - PagedAttention
+  - vLLM KV cache
+  - LMCache
+  - disaggregated prefill decode inference
+  - KV cache offloading CPU GPU
+  - long context serving LLM
+  - speculative decoding KV cache
+  - SGLang
+
+tier_2_agentic: # agentic，但要求落回 context / KV cache 管理，不要脱钩
+  - long horizon agent context window
+  - agent memory context management
+  - ReAct context compression
+  - tool use context eviction agent
+  - deep research agent context length
+
+tier_3_positional_adjacent: # 位置编码/外推,跟"位置墙"强相关
+  - YaRN RoPE scaling
+  - position interpolation long context
+  - RoPE extrapolation
+  - state space model long context Mamba
+  - RWKV long context KV alternative
+
+watchlist_entities: # 具体项目/团队，直接按名字追更新
+  projects:
+    - SnapKV
+    - ChunkKV
+    - H2O heavy hitter oracle
+    - CacheBlend
+    - CacheClip
+    - SideQuest LLM agent
+    - IntentKV
+    - MiniPIC
+    - MEPIC
+    - CacheSlide
+    - Attention Matching KV
+  venues_and_sources:
+    - arXiv cs.CL
+    - arXiv cs.LG
+    - arXiv cs.DC
+    - MLSys conference
+    - OSDI SOSP
+    - NeurIPS ICLR systems track
+    - vLLM GitHub releases
+    - LMCache GitHub releases
+
+deprioritize: # 出现但和 tier_0/1 无交集的话题，直接过滤,不进 digest
+  - general LLM fine-tuning (无 KV cache 交集时)
+  - RLHF alignment safety (无 KV cache 交集时)
+  - generic benchmark leaderboard 发布

@@ -1,0 +1,32 @@
+name: daily-digest
+
+on:
+  schedule:
+    - cron: "0 1 * * *"   # UTC 01:00 = 北京时间 09:00，按需调整
+  workflow_dispatch: {}    # 允许手动触发，方便调试
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install anthropic pyyaml
+
+      - run: python scripts/generate_digest.py
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # 开 PR 而不是直接 commit 到主分支——自动摘要偶尔会误判相关性，
+      # 尤其是关键词库刚调整过的那几周，建议人工过一眼再合并。
+      - name: Open PR with today's digest
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "digest: ${{ github.run_id }}"
+          branch: "digest/auto-${{ github.run_id }}"
+          title: "Daily research digest — auto-generated"
+          body: "自动生成的 digest，请检查 🔥 今日必看 部分的判断是否合理再合并。"
