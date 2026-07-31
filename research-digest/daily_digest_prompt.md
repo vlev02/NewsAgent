@@ -8,9 +8,12 @@
 
 ## 执行要求
 
-1. 对 tier_0 / tier_1 / tier_2 / watchlist 分别搜索，不要合并成一个大 query 一次搜完——
-   合并查询只会拿到每个方向都很表面的结果。重点找过去 24-48 小时内的新 arXiv 论文、
-   GitHub 新 release、有分量的技术 blog/报告。
+1. 对 tier_0 / tier_1 / tier_2 / tier_3 / tier_4 / watchlist 分别搜索，不要合并成一个大
+   query 一次搜完——合并查询只会拿到每个方向都很表面的结果。重点找过去 24-48 小时内的新
+   arXiv 论文、GitHub 新 release、有分量的技术 blog/报告。
+   tier_2（agentic）和 tier_4（agent/LLM runtime 协同）命中率虽高，但噪音也大：只有
+   真正落到 KV/cache/context 层的才收；纯文本 memory、prompt/planning 框架、能力评测
+   榜单，按 deprioritize 规则过滤掉，不要因为带了 "agent" 就塞进来。
 2. 对每条命中，判断是否与「KV cache 算法/系统层面（压缩、复用、eviction、position 管理）」
    或「agentic 场景下落回 KV cache/context 管理」直接相关。按 deprioritize 规则过滤掉无关
    内容,不要为了凑数量硬塞进来。
@@ -28,6 +31,7 @@
 #### KV Cache 复用 / Position Re-indexing
 #### Systems / Serving
 #### Agentic Context 管理
+#### Agent Runtime × LLM Runtime 协同（tier_4：prefix-aware 调度、stateful serving、tool-call 拦截）
 
 ### 🏗️ 工程/生态动态（vLLM / LMCache / SGLang 等仓库的新 release、RFC、issue 讨论）
 

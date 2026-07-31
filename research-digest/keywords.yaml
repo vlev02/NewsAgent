@@ -7,7 +7,7 @@
 # - 每次改动就是一次 commit，不要偷懒直接改不留痕迹——这个文件的 git history 本身就是
 #   "关注点演化记录"。
 #
-# 最后更新：2026-07-14
+# 最后更新：2026-07-31
 
 tier_0_core: # 每次必搜，命中就是"今天必须看"
   - KV cache compression
@@ -32,12 +32,30 @@ tier_1_systems_serving: # 系统 / serving 层
   - speculative decoding KV cache
   - SGLang
 
-tier_2_agentic: # agentic，但要求落回 context / KV cache 管理，不要脱钩
+tier_2_agentic: # agentic，但要求落回 context / KV cache 管理，不要脱钩。
+  #                核心判据：这篇有没有碰到 KV/cache 层？只做纯文本 memory/prompt
+  #                工程（summarize、scratchpad、纯 RAG 检索）而不触及 KV 的，降到 deprioritize。
+  # —— 已验证高产，保留 ——
   - long horizon agent context window
   - agent memory context management
   - ReAct context compression
   - tool use context eviction agent
   - deep research agent context length
+  # —— ① 长程 agent 轨迹 / 评测：当作"压 KV 的 workload"来追，不看纯 prompt engineering ——
+  - multi-turn agent trajectory KV cache
+  - Plan-and-Execute agent context management
+  - Reflexion agent context reuse
+  - long horizon agent benchmark context length
+  - agentic workload inference profiling
+  # —— ③ agent 记忆 / 上下文管理"系统"：要落到存储/复用/驱逐机制，不是纯 memory 概念 ——
+  - agentic context engineering system
+  - structured agent memory KV cache
+  - agent context offloading retrieval KV
+  # —— ④ agent 场景下 KV / cache 特有代价：prefix 失效、跨轮复用、context 膨胀成本 ——
+  - prefix cache invalidation tool call
+  - KV cache reuse multi-turn conversation
+  - agent context growth inference cost
+  - shared prefix cache multi-agent
 
 tier_3_positional_adjacent: # 位置编码/外推,跟"位置墙"强相关
   - YaRN RoPE scaling
@@ -45,6 +63,17 @@ tier_3_positional_adjacent: # 位置编码/外推,跟"位置墙"强相关
   - RoPE extrapolation
   - state space model long context Mamba
   - RWKV long context KV alternative
+
+tier_4_runtime_cooptimization: # Agent Runtime ↔ LLM Runtime 协同：agent 编排层和 serving
+  #                              层的 co-design，把 agent 语义（多轮/工具/分支）暴露给
+  #                              KV cache 调度。这是"系统协同优化"方向，区别于纯算法压缩。
+  - agent runtime LLM serving co-design
+  - KV cache aware agent scheduling
+  - stateful LLM serving session cache
+  - prefix aware scheduling LLM serving
+  - LLM serving agentic workload
+  - inference engine tool call interception
+  - semantic aware LLM application serving
 
 watchlist_entities: # 具体项目/团队，直接按名字追更新
   projects:
@@ -59,6 +88,11 @@ watchlist_entities: # 具体项目/团队，直接按名字追更新
     - MEPIC
     - CacheSlide
     - Attention Matching KV
+    # tier_4 co-optimization 方向的具名系统（agent/LLM runtime 协同、prefix-aware 调度）
+    - Parrot LLM application serving
+    - Preble prefix sharing scheduling
+    - Autellix agentic serving
+    - InferCept augmented LLM serving
   venues_and_sources:
     - arXiv cs.CL
     - arXiv cs.LG
@@ -73,3 +107,8 @@ deprioritize: # 出现但和 tier_0/1 无交集的话题，直接过滤,不进 d
   - general LLM fine-tuning (无 KV cache 交集时)
   - RLHF alignment safety (无 KV cache 交集时)
   - generic benchmark leaderboard 发布
+  # 关键区分：纯文本层 agent 工作，不碰 KV/cache 的，一律过滤——这是 tier_2/tier_4 最大的噪音源
+  - 纯文本 agent memory / summarization / scratchpad（不触及 KV cache 时）
+  - agent prompt engineering / planning 框架本身（无 serving/KV 层贡献时）
+  - 纯 RAG 检索质量 / embedding（不落到 KV 复用时）
+  - agent 能力评测榜单（不分析 context/KV 代价时）
