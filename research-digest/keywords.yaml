@@ -1,114 +1,176 @@
-# LLM 研究追踪关键词库
+# LLM 研究追踪关键词库 v2 —— 主轴：Agent ↔ KV 协同（StructKV 方向）
+#
+# 方向调整（2026-09-22）：
+# - 主轴从"KV 压缩算法"切换为"agent 结构语义如何驱动 KV 层管理"，即 StructKV (P2)
+#   与 Agentic KV Runtime (P3) 所在的交叉带：结构信号 → KV 指令 → 原地编辑执行。
+# - 纯算法 KV 压缩（注意力打分式 eviction、量化、低秩、单轮长文档压缩）降级为
+#   baseline 追踪：每周搜一次，只关心它是否成为新的强 baseline，或开始在 agent /
+#   多轮场景上评测。
+# - 位置管理（prune 后 reindex / RoPE 校正）保留在核心层：它是原地编辑的执行前提（P1 ReClaim）。
 #
 # 更新原则：
-# - 发现新术语（尤其是论文自造词，比如 ReClaim 自己的 "positional coherence" /
-#   "position budget" / "co-attended survivors"）就加进对应 tier。
-# - 连续 2 周没有产出相关信号的词，考虑降级到 tier_3 或直接删除。
-# - 每次改动就是一次 commit，不要偷懒直接改不留痕迹——这个文件的 git history 本身就是
-#   "关注点演化记录"。
+# - 发现新术语（尤其是论文自造词，如 "KV directives" / "positional coherence" /
+#   "co-attended survivors"）就加进对应 tier。
+# - 连续 2 周没有产出相关信号的词，考虑降级或删除。
+# - 每次改动就是一次 commit，这个文件的 git history 本身就是"关注点演化记录"。
+# - 本文件由人工维护；digest routine 只读不写。
 #
-# 最后更新：2026-07-31
+# 最后更新：2026-09-22
 
-tier_0_core: # 每次必搜，命中就是"今天必须看"
-  - KV cache compression
-  - KV cache eviction
-  - KV cache reuse
-  - prefix caching LLM
+# ─────────────────────────────────────────────────────────────
+# 搜索频率策略（routine 按此执行）
+# ─────────────────────────────────────────────────────────────
+search_policy:
+  daily:
+    - tier_0_agent_kv_bridge
+    - tier_1_runtime_serving_interface
+    - tier_2_agent_workload_evidence
+    - watchlist_entities.core_competitors
+    - watchlist_entities.agent_serving_systems
+  weekly_monday: # 仅在运行日为周一时搜索
+    - tier_3_kv_algorithm_baselines
+    - tier_4_positional_adjacent
+    - watchlist_entities.baselines
+    - watchlist_entities.agent_runtimes
+
+# ─────────────────────────────────────────────────────────────
+# 主轴
+# ─────────────────────────────────────────────────────────────
+tier_0_agent_kv_bridge: # 每次必搜；命中且满足 A 级判据 → 进入 🔥 候选
+  # —— 结构信号 → KV 操作（StructKV 本体）——
+  - structure-aware KV cache eviction agent
+  - episode-level KV cache pruning
+  - tool call aware KV cache management
+  - semantic block KV cache eviction
+  - agent context dependency graph eviction
+  - intent-aware KV cache pruning multi-turn
+  # —— KV 层原地编辑原语（P3 执行侧）——
+  - KV cache directives
+  - in-place KV cache editing
+  - KV cache splice delete without re-prefill
+  - context editing prefix cache preservation
+  # —— 原地编辑的执行前提（P1 ReClaim）——
   - position re-indexing KV cache
-  - RoPE re-rotation cache
-  - semantic chunk eviction
-  - attention sink
-  - StreamingLLM
-  - token pruning attention
-  - token merging ViT LLM
-
-tier_1_systems_serving: # 系统 / serving 层
-  - PagedAttention
-  - vLLM KV cache
-  - LMCache
-  - disaggregated prefill decode inference
-  - KV cache offloading CPU GPU
-  - long context serving LLM
-  - speculative decoding KV cache
-  - SGLang
-
-tier_2_agentic: # agentic，但要求落回 context / KV cache 管理，不要脱钩。
-  #                核心判据：这篇有没有碰到 KV/cache 层？只做纯文本 memory/prompt
-  #                工程（summarize、scratchpad、纯 RAG 检索）而不触及 KV 的，降到 deprioritize。
-  # —— 已验证高产，保留 ——
-  - long horizon agent context window
-  - agent memory context management
-  - ReAct context compression
-  - tool use context eviction agent
-  - deep research agent context length
-  # —— ① 长程 agent 轨迹 / 评测：当作"压 KV 的 workload"来追，不看纯 prompt engineering ——
-  - multi-turn agent trajectory KV cache
-  - Plan-and-Execute agent context management
-  - Reflexion agent context reuse
-  - long horizon agent benchmark context length
-  - agentic workload inference profiling
-  # —— ③ agent 记忆 / 上下文管理"系统"：要落到存储/复用/驱逐机制，不是纯 memory 概念 ——
-  - agentic context engineering system
-  - structured agent memory KV cache
-  - agent context offloading retrieval KV
-  # —— ④ agent 场景下 KV / cache 特有代价：prefix 失效、跨轮复用、context 膨胀成本 ——
+  - RoPE correction pruned KV cache
+  # —— agent 场景下 KV 失效与重算代价（动机侧）——
+  - context engineering KV cache invalidation
+  - agent re-prefill cost TTFT
   - prefix cache invalidation tool call
-  - KV cache reuse multi-turn conversation
-  - agent context growth inference cost
-  - shared prefix cache multi-agent
+  - stateful inference persistent KV multi-turn
 
-tier_3_positional_adjacent: # 位置编码/外推,跟"位置墙"强相关
+tier_1_runtime_serving_interface: # Agent Runtime ↔ Serving 接口与协同（P3 + 接口边界调研）
+  - agent runtime LLM serving co-design
+  - agentic workload KV cache serving
+  - KV cache aware agent scheduling
+  - stateful LLM serving session API
+  - agentic workflow prefix caching
+  - multi-turn agent KV cache retention TTL
+  - chat template token span mapping serving
+  - message boundary metadata LLM serving
+  - SGLang RadixAttention multi-turn agent
+  - vLLM prefix caching agent workload
+  - LMCache agent KV reuse
+
+tier_2_agent_workload_evidence: # 轨迹 / workload / 机理证据：E1–E3 实验原料与动机数据
+  - coding agent trace KV cache analysis
+  - agent trajectory prefill amplification
+  - long horizon agent context growth cost
+  - agent trajectory dataset tool calls open
+  - agent context management benchmark KV
+  - multi-agent shared prefix cache
+  - tool result attention KV interpretability
+  # 纯文本层 agent 上下文管理：只在"产出可被 KV 层消费的结构信号"时保留（见 deprioritize 例外）
+  - typed episode agent context eviction
+  - agent context lifecycle failed tool call pruning
+
+# ─────────────────────────────────────────────────────────────
+# 降级层（每周一搜）
+# ─────────────────────────────────────────────────────────────
+tier_3_kv_algorithm_baselines: # 纯算法 KV 压缩，仅作 baseline 追踪
+  # 进入 digest 的条件（满足其一）：
+  #   a) 在主流 benchmark 上刷新 SOTA，可能成为 E1 必须对比的新 baseline；
+  #   b) 首次在 agent / 多轮 / 工具调用场景上评测；
+  #   c) 提出可复用的 chunk / block 级机制（可被结构信号驱动）。
+  # 满足条件也只进"📦 Baseline 动态"分区，不进 🔥。
+  - KV cache compression
+  - KV cache eviction attention score
+  - semantic chunk KV cache
+  - KV cache quantization
+  - token pruning attention
+  - attention sink StreamingLLM
+
+tier_4_positional_adjacent: # 位置编码 / 外推背景，低频
+  - RoPE extrapolation
   - YaRN RoPE scaling
   - position interpolation long context
-  - RoPE extrapolation
-  - state space model long context Mamba
-  - RWKV long context KV alternative
+  - state space model long context KV alternative
 
-tier_4_runtime_cooptimization: # Agent Runtime ↔ LLM Runtime 协同：agent 编排层和 serving
-  #                              层的 co-design，把 agent 语义（多轮/工具/分支）暴露给
-  #                              KV cache 调度。这是"系统协同优化"方向，区别于纯算法压缩。
-  - agent runtime LLM serving co-design
-  - KV cache aware agent scheduling
-  - stateful LLM serving session cache
-  - prefix aware scheduling LLM serving
-  - LLM serving agentic workload
-  - inference engine tool call interception
-  - semantic aware LLM application serving
-
-watchlist_entities: # 具体项目/团队，直接按名字追更新
-  projects:
+# ─────────────────────────────────────────────────────────────
+# 具名追踪
+# ─────────────────────────────────────────────────────────────
+watchlist_entities:
+  core_competitors: # 与 StructKV 主张直接重叠；出现新版本、follow-up 或高引用讨论 → 必进 ⚠️ 竞品预警
+    - Leyline KV Directives          # 2606.01065
+    - IntentKV                        # 2606.09916
+    - MemDecay                        # 2607.10582
+    - Beyond Compaction CWL           # 2606.11213
+    - TokenPilot                      # 2606.17016
+    - CodeComp                        # 2604.10235
+    - SmoothAgent                     # 2607.00151
+    - Stateful Inference delta-only   # 2605.26289
+    - SideQuest LLM agent             # 2602.22603
+    - Models Take Notes at Prefill    # 2606.17107
+  agent_serving_systems:
+    - Continuum multi-turn agent KV
+    - KVFlow agentic workflow
+    - Autellix agentic serving
+    - Parrot LLM application serving
+    - Preble prefix sharing scheduling
+    - InferCept augmented LLM serving
+    - TraceLab agent trace
+  agent_runtimes: # 追接口 / 数据结构变化（message ID、tool call ID、context 管理 API）
+    - OpenHands
+    - Claude Code
+    - Hermes agent
+  baselines: # 降级，每周一追一次
     - SnapKV
-    - ChunkKV
+    - ChunkKV                         # 2502.00299
     - H2O heavy hitter oracle
     - CacheBlend
     - CacheClip
-    - SideQuest LLM agent
-    - IntentKV
     - MiniPIC
     - MEPIC
     - CacheSlide
     - Attention Matching KV
-    # tier_4 co-optimization 方向的具名系统（agent/LLM runtime 协同、prefix-aware 调度）
-    - Parrot LLM application serving
-    - Preble prefix sharing scheduling
-    - Autellix agentic serving
-    - InferCept augmented LLM serving
   venues_and_sources:
     - arXiv cs.CL
     - arXiv cs.LG
     - arXiv cs.DC
     - MLSys conference
-    - OSDI SOSP
+    - OSDI SOSP EuroSys
     - NeurIPS ICLR systems track
+    - SGLang GitHub releases
     - vLLM GitHub releases
     - LMCache GitHub releases
 
-deprioritize: # 出现但和 tier_0/1 无交集的话题，直接过滤,不进 digest
-  - general LLM fine-tuning (无 KV cache 交集时)
-  - RLHF alignment safety (无 KV cache 交集时)
+# ─────────────────────────────────────────────────────────────
+# 过滤规则
+# ─────────────────────────────────────────────────────────────
+deprioritize:
+  - general LLM fine-tuning（无 KV cache 交集时）
+  - RLHF alignment safety（无 KV cache 交集时）
   - generic benchmark leaderboard 发布
-  # 关键区分：纯文本层 agent 工作，不碰 KV/cache 的，一律过滤——这是 tier_2/tier_4 最大的噪音源
+  - 视觉 token merging / ViT 压缩
+  # 降级规则：纯算法 KV 压缩
+  - 纯算法 KV 压缩 / 量化，且只在单轮长文档 benchmark（LongBench / RULER / NIAH 等）评测、
+    不涉及 agent / 多轮 / 结构信号 → 最多进"📦 Baseline 动态"一行，绝不进 🔥
+  # 纯文本层 agent 工作，默认过滤
   - 纯文本 agent memory / summarization / scratchpad（不触及 KV cache 时）
-  - agent prompt engineering / planning 框架本身（无 serving/KV 层贡献时）
+  - agent prompt engineering / planning 框架本身（无 serving / KV 层贡献时）
   - 纯 RAG 检索质量 / embedding（不落到 KV 复用时）
-  - agent 能力评测榜单（不分析 context/KV 代价时）
+  - agent 能力评测榜单（不分析 context / KV 代价时）
+
+deprioritize_exceptions: # 以下情况即使是文本层工作也保留，标注为"信号来源"
+  - 提出了可被 KV 层消费的结构信号（episode 类型、依赖图、生命周期状态、失败 / 覆盖标记）
+  - 明确测量或讨论其对 prefix cache 命中率 / re-prefill 代价的影响
+  - 公开了带工具调用结构的 agent 轨迹数据集
